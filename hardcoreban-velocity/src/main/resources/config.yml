@@ -1,0 +1,18 @@
+# HardcoreBan Velocity Configuration
+
+# The name of the server that is running in hardcore mode
+hardcore-server: world
+
+# Database configuration (must match Paper plugin settings)
+database:
+  host: localhost
+  port: 3306
+  database: minecraft
+  username: root
+  password: password
+
+# Messages (supports MiniMessage format)
+messages:
+  title-banned: "<red>Hardcore Mode Banned"
+  subtitle-banned: "<yellow>Ban expires in {time}"
+  chat-banned: "<red>You cannot connect to the hardcore server for {time}."

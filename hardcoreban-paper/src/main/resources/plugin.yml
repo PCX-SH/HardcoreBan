@@ -1,0 +1,23 @@
+name: HardcoreBan-Paper
+version: 1.0.0
+main: sh.pcx.hardcoreban.HardcoreBanPlugin
+api-version: 1.21
+description: Temporarily bans players when they die in hardcore mode
+author: Reset64
+commands:
+  hardcoreban:
+    description: HardcoreBan admin commands
+    usage: /hardcoreban [check|list|reset|clearall]
+    aliases: [hcban]
+    permission: hardcoreban.admin
+permissions:
+  hardcoreban.admin:
+    description: Allows access to all HardcoreBan commands
+    default: op
+    children:
+      hardcoreban.check: true
+      hardcoreban.list: true
+      hardcoreban.reset: true
+      hardcoreban.clearall: true
+      hardcoreban.debug: true
+      hardcoreban.sql: true

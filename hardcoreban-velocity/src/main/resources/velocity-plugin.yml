@@ -1,0 +1,7 @@
+id: hardcoreban-velocity
+name: HardcoreBan-Velocity
+version: 1.0.0
+description: Synchronizes hardcore mode bans between servers
+authors: [Reset64]
+main: sh.pcx.hardcorebanelocity.HardcoreBanVelocityPlugin
+depends: []

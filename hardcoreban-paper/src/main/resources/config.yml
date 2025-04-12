@@ -1,0 +1,43 @@
+# HardcoreBan Configuration
+
+# Ban duration in hours
+ban-duration: 24
+
+# The world that is considered hardcore
+# Set to "world" by default
+hardcore-world: "world"
+
+# Whether to affect all worlds or just the specified hardcore world
+affect-all-worlds: false
+
+# What gamemode to set players to when their ban expires
+reset-gamemode: "SURVIVAL"
+
+# Whether to set player to spectator mode on death
+set-spectator-on-death: true
+
+# How long to wait before kicking a player after death (in ticks, 20 ticks = 1 second)
+kick-delay-ticks: 60
+
+# How often to check for expired bans (in seconds)
+check-interval: 60
+
+# Database configuration
+database:
+  host: localhost
+  port: 3306
+  database: minecraft
+  username: root
+  password: password
+  table-prefix: ''
+
+# Logging level
+# Available levels: OFF, SEVERE, WARNING, INFO, CONFIG, FINE, FINER, FINEST, ALL
+log-level: "INFO"
+
+# Messages (supports MiniMessage format)
+messages:
+  death-ban: "<red>You died in hardcore mode! You are banned for {hours} hours."
+  kick-message: "<red>You died in hardcore mode! You are banned for {hours} hours."
+  join-banned: "<red>You are still banned from hardcore mode for {time}."
+  gamemode-reset: "<green>Your hardcore ban has expired. Your gamemode has been set to survival."
