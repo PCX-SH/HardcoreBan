@@ -151,7 +151,3 @@ CREATE TABLE IF NOT EXISTS hardcoreban_bans (
 ## Compatible Plugins
 
 - **HardcoreBan Velocity Plugin**: For integration with Velocity proxy to prevent banned players from connecting to the server
-
-## License
-
-This project is licensed under the MIT License - see the LICENSE file for details.

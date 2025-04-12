@@ -88,7 +88,3 @@ Make sure that:
 - Make sure the `hardcore-server` value in the config matches the exact name of your server in Velocity
 - If players can still connect despite being banned, make sure both plugins are using the same database
 - Check logs for any error messages during connection attempts
-
-## License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
