@@ -1,7 +1,11 @@
 # HardcoreBan Configuration
 
-# Ban duration in hours
-ban-duration: 24
+# Ban duration configuration
+ban-duration:
+  # Time unit: "minutes" or "hours"
+  unit: "hours"
+  # Amount of time in the specified unit
+  amount: 24
 
 # The world that is considered hardcore
 # Set to "world" by default
@@ -14,9 +18,11 @@ affect-all-worlds: false
 reset-gamemode: "SURVIVAL"
 
 # Whether to set player to spectator mode on death
+# This allows them to see their death location briefly before being kicked
 set-spectator-on-death: true
 
 # How long to wait before kicking a player after death (in ticks, 20 ticks = 1 second)
+# This only applies if set-spectator-on-death is true
 kick-delay-ticks: 60
 
 # How often to check for expired bans (in seconds)
@@ -37,7 +43,7 @@ log-level: "INFO"
 
 # Messages (supports MiniMessage format)
 messages:
-  death-ban: "<red>You died in hardcore mode! You are banned for {hours} hours."
-  kick-message: "<red>You died in hardcore mode! You are banned for {hours} hours."
+  death-ban: "<red>You died in hardcore mode! You are banned for {time}."
+  kick-message: "<red>You died in hardcore mode! You are banned for {time}."
   join-banned: "<red>You are still banned from hardcore mode for {time}."
   gamemode-reset: "<green>Your hardcore ban has expired. Your gamemode has been set to survival."

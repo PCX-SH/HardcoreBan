@@ -31,11 +31,7 @@ import sh.pcx.hardcoreban.database.DatabaseManager;
 
 public class HardcoreBanPlugin extends JavaPlugin implements Listener {
     private FileConfiguration config;
-    private File banFile;
-    private File sharedBanFile;
     private DatabaseManager databaseManager;
-    private FileConfiguration banConfig;
-    private Map<UUID, Long> bannedPlayers = new HashMap<>();
     private MiniMessage miniMessage = MiniMessage.miniMessage();
 
     @Override
@@ -54,6 +50,14 @@ public class HardcoreBanPlugin extends JavaPlugin implements Listener {
             // Load or create the configuration
             saveDefaultConfig();
             config = getConfig();
+
+            // Suppress MySQL driver warnings
+            try {
+                java.util.logging.Logger.getLogger("com.mysql.jdbc.Driver").setLevel(java.util.logging.Level.OFF);
+                java.util.logging.Logger.getLogger("com.mysql.cj.jdbc.Driver").setLevel(java.util.logging.Level.OFF);
+            } catch (Exception e) {
+                // Ignore any errors when trying to configure the logger
+            }
 
             // Initialize database manager
             databaseManager = new DatabaseManager(this);
@@ -111,101 +115,6 @@ public class HardcoreBanPlugin extends JavaPlugin implements Listener {
         log(Level.INFO, "HardcoreBan has been disabled!");
     }
 
-    private void setupBanStorage() {
-        banFile = new File(getDataFolder(), "bans.yml");
-        if (!banFile.exists()) {
-            try {
-                banFile.createNewFile();
-            } catch (IOException e) {
-                log(Level.SEVERE, "Could not create bans.yml file: " + e.getMessage());
-            }
-        }
-
-        // Set up shared bans file in the plugins folder
-        sharedBanFile = new File(getDataFolder(), "hardcoreban_shared.yml");
-        if (!sharedBanFile.exists()) {
-            try {
-                sharedBanFile.createNewFile();
-                log(Level.INFO, "Created shared ban file at " + sharedBanFile.getAbsolutePath());
-            } catch (IOException e) {
-                log(Level.SEVERE, "Could not create shared ban file: " + e.getMessage());
-            }
-        }
-
-        // Load existing bans
-        banConfig = YamlConfiguration.loadConfiguration(banFile);
-
-        if (banConfig.contains("bans")) {
-            for (String uuidStr : banConfig.getConfigurationSection("bans").getKeys(false)) {
-                try {
-                    UUID uuid = UUID.fromString(uuidStr);
-                    long expiry = banConfig.getLong("bans." + uuidStr);
-                    if (System.currentTimeMillis() < expiry) {
-                        bannedPlayers.put(uuid, expiry);
-                    }
-                } catch (IllegalArgumentException e) {
-                    log(Level.WARNING, "Invalid UUID in ban storage: " + uuidStr);
-                }
-            }
-        }
-
-        log(Level.INFO, "Loaded " + bannedPlayers.size() + " active bans from storage.");
-
-        // Immediately update shared storage
-        updateSharedStorage();
-    }
-
-    private void updateSharedStorage() {
-        try {
-            YamlConfiguration sharedConfig = new YamlConfiguration();
-
-            // Save all bans to the shared file
-            for (Map.Entry<UUID, Long> entry : bannedPlayers.entrySet()) {
-                String uuidStr = entry.getKey().toString();
-                long expiry = entry.getValue();
-
-                // Store name if available
-                Player player = Bukkit.getPlayer(entry.getKey());
-                if (player != null) {
-                    sharedConfig.set("names." + uuidStr, player.getName());
-                } else {
-                    String name = Bukkit.getOfflinePlayer(entry.getKey()).getName();
-                    if (name != null) {
-                        sharedConfig.set("names." + uuidStr, name);
-                    }
-                }
-
-                sharedConfig.set("bans." + uuidStr, expiry);
-            }
-
-            // Add timestamp
-            sharedConfig.set("last_updated", System.currentTimeMillis());
-
-            // Save to file
-            sharedConfig.save(sharedBanFile);
-            log(Level.FINE, "Updated shared ban storage with " + bannedPlayers.size() + " bans");
-        } catch (IOException e) {
-            log(Level.SEVERE, "Could not update shared ban file: " + e.getMessage());
-        }
-    }
-
-    public void saveBanData() {
-        banConfig.set("bans", null); // Clear existing bans section
-        for (Map.Entry<UUID, Long> entry : bannedPlayers.entrySet()) {
-            banConfig.set("bans." + entry.getKey().toString(), entry.getValue());
-        }
-
-        try {
-            banConfig.save(banFile);
-            log(Level.INFO, "Saved " + bannedPlayers.size() + " bans to storage.");
-
-            // Also update the shared file
-            updateSharedStorage();
-        } catch (IOException e) {
-            log(Level.SEVERE, "Could not save bans to file: " + e.getMessage());
-        }
-    }
-
     @EventHandler
     public void onPlayerDeath(PlayerDeathEvent event) {
         Player player = event.getPlayer();
@@ -229,83 +138,67 @@ public class HardcoreBanPlugin extends JavaPlugin implements Listener {
             return;
         }
 
-        // Calculate ban duration in milliseconds
-        long banDuration = config.getLong("ban-duration", 24) * 60 * 60 * 1000; // Convert hours to ms
+        // Calculate ban duration in milliseconds based on the new config
+        String unit = config.getString("ban-duration.unit", "hours").toLowerCase();
+        int amount = config.getInt("ban-duration.amount", 24);
+
+        long banDuration;
+        if ("minutes".equals(unit)) {
+            banDuration = amount * 60 * 1000; // Convert minutes to ms
+        } else {
+            // Default to hours
+            banDuration = amount * 60 * 60 * 1000; // Convert hours to ms
+        }
+
         long expiry = System.currentTimeMillis() + banDuration;
         log(Level.INFO, "Attempting to ban player " + player.getName() + " until " + new java.util.Date(expiry));
 
-        // Direct database operation test
-        try {
-            boolean directDbSuccess = databaseManager.addBan(
-                    player.getUniqueId(),
-                    player.getName(),
-                    expiry,
-                    "Death",
-                    System.currentTimeMillis(),
-                    "Death in hardcore mode"
-            );
-            log(Level.INFO, "Direct database ban operation result: " + (directDbSuccess ? "SUCCESS" : "FAILURE"));
-        } catch (Exception e) {
-            log(Level.SEVERE, "Error during direct database ban: " + e.getMessage());
-            e.printStackTrace();
-        }
+        // Ban the player
+        boolean banSuccess = banPlayer(player.getUniqueId(), expiry);
 
-        // Verify the ban was added
-        boolean isBannedNow = databaseManager.isBanned(player.getUniqueId());
-        log(Level.INFO, "Ban verification check for " + player.getName() + ": " + (isBannedNow ? "BANNED" : "NOT BANNED"));
+        if (banSuccess) {
+            // Format the ban time for messages
+            String formattedBanTime = formatBanTime(banDuration);
 
-        // Only proceed with the player messaging and kicking if the ban was successful
-        if (isBannedNow) {
             // Notify the player about the ban
-            String deathMessage = config.getString("messages.death-ban", "<red>You died in hardcore mode! You are banned for {hours} hours.");
-            deathMessage = deathMessage.replace("{hours}", String.valueOf(TimeUnit.MILLISECONDS.toHours(banDuration)));
+            String deathMessage = config.getString("messages.death-ban", "<red>You died in hardcore mode! You are banned for {time}.");
+            deathMessage = deathMessage.replace("{time}", formattedBanTime);
             player.sendMessage(miniMessage.deserialize(deathMessage));
-            log(Level.INFO, "Sent ban message to " + player.getName());
 
             // Set gamemode to spectator if configured to do so
             boolean setSpectatorOnDeath = config.getBoolean("set-spectator-on-death", true);
             if (setSpectatorOnDeath) {
                 // Set to spectator immediately to allow them to see their death location
                 player.setGameMode(GameMode.SPECTATOR);
-                log(Level.INFO, "Set " + player.getName() + " to SPECTATOR mode");
 
                 // Create the kick message
                 final String kickMessage = config.getString("messages.kick-message",
-                                "<red>You died in hardcore mode! You are banned for {hours} hours.")
-                        .replace("{hours}", String.valueOf(TimeUnit.MILLISECONDS.toHours(banDuration)));
+                                "<red>You died in hardcore mode! You are banned for {time}.")
+                        .replace("{time}", formattedBanTime);
 
                 // Schedule a task to kick the player after a short delay
-                int kickDelayTicks = config.getInt("kick-delay-ticks", 60); // 3 seconds by default
-                log(Level.INFO, "Scheduled kick for " + player.getName() + " in " + kickDelayTicks + " ticks");
+                int kickDelayTicks = config.getInt("kick-delay-ticks", 60);
 
                 new BukkitRunnable() {
                     @Override
                     public void run() {
                         if (player.isOnline()) {
                             // Double check they're still banned before kicking
-                            boolean stillBanned = databaseManager.isBanned(player.getUniqueId());
-                            log(Level.INFO, "Kick task executing for " + player.getName() +
-                                    ". Still banned: " + stillBanned);
-
-                            if (stillBanned) {
-                                log(Level.INFO, "Kicking " + player.getName() + " due to hardcore ban");
+                            if (isBanned(player.getUniqueId())) {
                                 player.kick(miniMessage.deserialize(kickMessage));
                             } else {
                                 log(Level.WARNING, "Player " + player.getName() +
                                         " was supposed to be banned but isn't. Not kicking.");
                                 resetPlayerGameMode(player);
                             }
-                        } else {
-                            log(Level.INFO, "Player " + player.getName() + " is offline, not kicking");
                         }
                     }
                 }.runTaskLater(this, kickDelayTicks);
             } else {
                 // Kick immediately if not using spectator mode
                 String kickMessage = config.getString("messages.kick-message",
-                        "<red>You died in hardcore mode! You are banned for {hours} hours.");
-                kickMessage = kickMessage.replace("{hours}", String.valueOf(TimeUnit.MILLISECONDS.toHours(banDuration)));
-                log(Level.INFO, "Immediately kicking " + player.getName() + " due to hardcore ban");
+                        "<red>You died in hardcore mode! You are banned for {time}.");
+                kickMessage = kickMessage.replace("{time}", formattedBanTime);
                 player.kick(miniMessage.deserialize(kickMessage));
             }
         } else {
@@ -499,21 +392,73 @@ public class HardcoreBanPlugin extends JavaPlugin implements Listener {
         }
     }
 
+    public Map<UUID, Long> getBannedPlayers() {
+        try {
+            return databaseManager.getAllBans();
+        } catch (Exception e) {
+            log(Level.SEVERE, "Error getting banned players: " + e.getMessage());
+            e.printStackTrace();
+            return new HashMap<>();
+        }
+    }
+
     private void resetPlayerGameMode(Player player) {
-        GameMode gameMode = GameMode.valueOf(config.getString("reset-gamemode", "SURVIVAL").toUpperCase());
-        player.setGameMode(gameMode);
+        // Get the configured gamemode to reset to
+        String gameModeStr = config.getString("reset-gamemode", "SURVIVAL").toUpperCase();
+        GameMode targetGameMode;
 
-        String resetMessage = config.getString("messages.gamemode-reset", "<green>Your hardcore ban has expired. Your gamemode has been set to survival.");
+        try {
+            targetGameMode = GameMode.valueOf(gameModeStr);
+        } catch (IllegalArgumentException e) {
+            log(Level.WARNING, "Invalid reset-gamemode in config: " + gameModeStr + ". Defaulting to SURVIVAL.");
+            targetGameMode = GameMode.SURVIVAL;
+        }
+
+        // Store original gamemode for logging
+        GameMode originalGameMode = player.getGameMode();
+
+        // Set the player's gamemode
+        player.setGameMode(targetGameMode);
+
+        // Verify that the gamemode change took effect
+        if (player.getGameMode() != targetGameMode) {
+            log(Level.WARNING, "Failed to reset gamemode for player " + player.getName() +
+                    ". Target: " + targetGameMode + ", Actual: " + player.getGameMode());
+
+            // Try again one more time after a short delay
+            GameMode finalTargetGameMode = targetGameMode;
+            new BukkitRunnable() {
+                @Override
+                public void run() {
+                    if (player.isOnline()) {
+                        player.setGameMode(finalTargetGameMode);
+
+                        // Check if it worked this time
+                        if (player.getGameMode() != finalTargetGameMode) {
+                            log(Level.SEVERE, "Failed to reset gamemode for player " + player.getName() +
+                                    " after second attempt. Something is preventing gamemode changes.");
+                        } else {
+                            log(Level.INFO, "Successfully reset gamemode for player " + player.getName() +
+                                    " on second attempt.");
+                        }
+                    }
+                }
+            }.runTaskLater(this, 5L); // 5 tick delay
+        } else {
+            log(Level.INFO, "Reset gamemode for player " + player.getName() +
+                    " from " + originalGameMode + " to " + targetGameMode);
+        }
+
+        // Send the gamemode reset message
+        String resetMessage = config.getString("messages.gamemode-reset",
+                "<green>Your hardcore ban has expired. Your gamemode has been set to survival.");
         player.sendMessage(miniMessage.deserialize(resetMessage));
-
-        log(Level.INFO, "Reset gamemode for player " + player.getName() + " to " + gameMode);
     }
 
     private void sendBanToVelocity(UUID uuid, long expiry) {
         // Try to notify Velocity, but don't worry if it fails
         if (Bukkit.getOnlinePlayers().isEmpty()) {
             log(Level.FINE, "Cannot notify Velocity of ban: no players online");
-            // This is fine - Velocity will check the shared file
             return;
         }
 
@@ -532,7 +477,6 @@ public class HardcoreBanPlugin extends JavaPlugin implements Listener {
         // Try to notify Velocity, but don't worry if it fails
         if (Bukkit.getOnlinePlayers().isEmpty()) {
             log(Level.FINE, "Cannot notify Velocity of ban removal: no players online");
-            // This is fine - Velocity will check the shared file
             return;
         }
 
@@ -550,7 +494,6 @@ public class HardcoreBanPlugin extends JavaPlugin implements Listener {
         // Try to notify Velocity, but don't worry if it fails
         if (Bukkit.getOnlinePlayers().isEmpty()) {
             log(Level.FINE, "Cannot notify Velocity of ban clearance: no players online");
-            // This is fine - Velocity will check the shared file
             return;
         }
 
@@ -563,26 +506,40 @@ public class HardcoreBanPlugin extends JavaPlugin implements Listener {
         log(Level.FINE, "Notified Velocity of ban clearance");
     }
 
+    // New method to format ban time based on configuration
+    public String formatBanTime(long durationMillis) {
+        String unit = config.getString("ban-duration.unit", "hours").toLowerCase();
+
+        if ("minutes".equals(unit)) {
+            long minutes = TimeUnit.MILLISECONDS.toMinutes(durationMillis);
+            return minutes + " minute" + (minutes == 1 ? "" : "s");
+        } else {
+            // Default to hours
+            long hours = TimeUnit.MILLISECONDS.toHours(durationMillis);
+            return hours + " hour" + (hours == 1 ? "" : "s");
+        }
+    }
+
+    // Updated format time method for better display
     private String formatTime(long millis) {
         long hours = TimeUnit.MILLISECONDS.toHours(millis);
         millis -= TimeUnit.HOURS.toMillis(hours);
         long minutes = TimeUnit.MILLISECONDS.toMinutes(millis);
 
-        if (hours > 0) {
-            return hours + " hours, " + minutes + " minutes";
-        } else {
-            return minutes + " minutes";
-        }
-    }
+        StringBuilder time = new StringBuilder();
 
-    public Map<UUID, Long> getBannedPlayers() {
-        try {
-            return databaseManager.getAllBans();
-        } catch (Exception e) {
-            log(Level.SEVERE, "Error getting banned players: " + e.getMessage());
-            e.printStackTrace();
-            return new HashMap<>();
+        if (hours > 0) {
+            time.append(hours).append(" hour").append(hours == 1 ? "" : "s");
+            if (minutes > 0) {
+                time.append(", ");
+            }
         }
+
+        if (minutes > 0 || hours == 0) {
+            time.append(minutes).append(" minute").append(minutes == 1 ? "" : "s");
+        }
+
+        return time.toString();
     }
 
     public void log(Level level, String message) {
@@ -590,6 +547,14 @@ public class HardcoreBanPlugin extends JavaPlugin implements Listener {
         if (level.intValue() >= configLevel.intValue()) {
             getLogger().log(level, message);
         }
+    }
+
+    public boolean checkDatabaseConnection() {
+        return databaseManager.connect();
+    }
+
+    public DatabaseManager getDatabaseManager() {
+        return databaseManager;
     }
 
     public void executeRawSql(String sql, CommandSender sender) {
@@ -601,13 +566,5 @@ public class HardcoreBanPlugin extends JavaPlugin implements Listener {
                 sender.sendMessage("§cError executing SQL: " + e.getMessage());
             }
         }
-    }
-
-    public boolean checkDatabaseConnection() {
-        return databaseManager.connect();
-    }
-
-    public DatabaseManager getDatabaseManager() {
-        return databaseManager;
     }
 }
