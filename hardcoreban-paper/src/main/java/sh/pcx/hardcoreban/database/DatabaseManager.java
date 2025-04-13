@@ -2,6 +2,8 @@ package sh.pcx.hardcoreban.database;
 
 import org.bukkit.command.CommandSender;
 import sh.pcx.hardcoreban.HardcoreBanPlugin;
+import sh.pcx.hardcoreban.model.Ban;
+import sh.pcx.hardcoreban.util.ConfigManager;
 
 import java.sql.*;
 import java.util.HashMap;
@@ -9,6 +11,10 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.logging.Level;
 
+/**
+ * Manages database operations for the HardcoreBan plugin.
+ * Handles connections, ban storage and retrieval.
+ */
 public class DatabaseManager {
     private final HardcoreBanPlugin plugin;
     private final String host;
@@ -18,17 +24,30 @@ public class DatabaseManager {
     private final String password;
     private Connection connection;
 
+    /**
+     * Creates a new DatabaseManager instance.
+     *
+     * @param plugin The main plugin instance
+     */
     public DatabaseManager(HardcoreBanPlugin plugin) {
         this.plugin = plugin;
 
+        // Get the ConfigManager from the plugin
+        ConfigManager configManager = plugin.getConfigManager();
+
         // Load database configuration from config
-        this.host = plugin.getConfig().getString("database.host", "localhost");
-        this.port = plugin.getConfig().getInt("database.port", 3306);
-        this.database = plugin.getConfig().getString("database.database", "minecraft");
-        this.username = plugin.getConfig().getString("database.username", "root");
-        this.password = plugin.getConfig().getString("database.password", "");
+        this.host = configManager.getString("database.host", "localhost");
+        this.port = configManager.getInt("database.port", 3306);
+        this.database = configManager.getString("database.database", "minecraft");
+        this.username = configManager.getString("database.username", "root");
+        this.password = configManager.getString("database.password", "");
     }
 
+    /**
+     * Connects to the database.
+     *
+     * @return true if connection successful, false otherwise
+     */
     public boolean connect() {
         try {
             if (connection != null && !connection.isClosed()) {
@@ -62,6 +81,9 @@ public class DatabaseManager {
         }
     }
 
+    /**
+     * Disconnects from the database.
+     */
     public void disconnect() {
         try {
             if (connection != null && !connection.isClosed()) {
@@ -73,6 +95,9 @@ public class DatabaseManager {
         }
     }
 
+    /**
+     * Creates the required database tables if they don't exist.
+     */
     private void createTablesIfNotExist() {
         try {
             if (connection == null || connection.isClosed()) {
@@ -97,10 +122,30 @@ public class DatabaseManager {
         }
     }
 
+    /**
+     * Adds a ban for a player who died in hardcore mode.
+     * Uses default values for banned by, banned at, and reason.
+     *
+     * @param uuid The UUID of the player
+     * @param playerName The name of the player
+     * @param expiry The time when the ban expires
+     * @return true if the ban was added successfully, false otherwise
+     */
     public boolean addBan(UUID uuid, String playerName, long expiry) {
         return addBan(uuid, playerName, expiry, "Console", System.currentTimeMillis(), "Death in hardcore mode");
     }
 
+    /**
+     * Adds a ban with custom details.
+     *
+     * @param uuid The UUID of the player
+     * @param playerName The name of the player
+     * @param expiry The time when the ban expires
+     * @param bannedBy Who banned the player
+     * @param bannedAt When the ban was created
+     * @param reason The reason for the ban
+     * @return true if the ban was added successfully, false otherwise
+     */
     public boolean addBan(UUID uuid, String playerName, long expiry, String bannedBy, long bannedAt, String reason) {
         try {
             boolean connected = connect();
@@ -143,6 +188,29 @@ public class DatabaseManager {
         }
     }
 
+    /**
+     * Adds a ban using a Ban model object.
+     *
+     * @param ban The Ban object containing all ban details
+     * @return true if the ban was added successfully, false otherwise
+     */
+    public boolean addBan(Ban ban) {
+        return addBan(
+                ban.getUuid(),
+                ban.getPlayerName(),
+                ban.getExpiry(),
+                ban.getBannedBy(),
+                ban.getBannedAt(),
+                ban.getReason()
+        );
+    }
+
+    /**
+     * Removes a ban for a player.
+     *
+     * @param uuid The UUID of the player
+     * @return true if a ban was removed, false if the player wasn't banned or an error occurred
+     */
     public boolean removeBan(UUID uuid) {
         try {
             boolean connected = connect();
@@ -170,6 +238,9 @@ public class DatabaseManager {
         }
     }
 
+    /**
+     * Clears all bans from the database.
+     */
     public void clearAllBans() {
         try {
             boolean connected = connect();
@@ -194,6 +265,12 @@ public class DatabaseManager {
         }
     }
 
+    /**
+     * Checks if a player is currently banned.
+     *
+     * @param uuid The UUID of the player
+     * @return true if the player is banned, false otherwise
+     */
     public boolean isBanned(UUID uuid) {
         try {
             boolean connected = connect();
@@ -226,6 +303,12 @@ public class DatabaseManager {
         }
     }
 
+    /**
+     * Gets the time left on a player's ban in milliseconds.
+     *
+     * @param uuid The UUID of the player
+     * @return The time left in milliseconds, or 0 if the player isn't banned
+     */
     public long getTimeLeft(UUID uuid) {
         try {
             boolean connected = connect();
@@ -259,6 +342,57 @@ public class DatabaseManager {
         }
     }
 
+    /**
+     * Gets a Ban object for a player if they are banned.
+     *
+     * @param uuid The UUID of the player
+     * @return A Ban object, or null if the player isn't banned
+     */
+    public Ban getBan(UUID uuid) {
+        try {
+            boolean connected = connect();
+            if (!connected) {
+                plugin.log(Level.WARNING, "Failed to connect to database when getting ban");
+                return null;
+            }
+
+            if (connection == null) {
+                plugin.log(Level.WARNING, "Database connection is null");
+                return null;
+            }
+
+            String sql = "SELECT player_name, expiry, banned_by, banned_at, reason FROM hardcoreban_bans WHERE uuid = ?";
+
+            try (PreparedStatement stmt = connection.prepareStatement(sql)) {
+                stmt.setString(1, uuid.toString());
+
+                try (ResultSet rs = stmt.executeQuery()) {
+                    if (rs.next()) {
+                        String playerName = rs.getString("player_name");
+                        long expiry = rs.getLong("expiry");
+                        String bannedBy = rs.getString("banned_by");
+                        long bannedAt = rs.getLong("banned_at");
+                        String reason = rs.getString("reason");
+
+                        // Only return if ban is still active
+                        if (expiry > System.currentTimeMillis()) {
+                            return new Ban(uuid, playerName, expiry, bannedBy, bannedAt, reason);
+                        }
+                    }
+                    return null;
+                }
+            }
+        } catch (SQLException e) {
+            plugin.log(Level.SEVERE, "Failed to get ban for player: " + e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Gets all currently active bans.
+     *
+     * @return A map of UUID to expiry time
+     */
     public Map<UUID, Long> getAllBans() {
         Map<UUID, Long> bans = new HashMap<>();
 
@@ -296,6 +430,58 @@ public class DatabaseManager {
         return bans;
     }
 
+    /**
+     * Gets all active bans with full details.
+     *
+     * @return A map of UUID to Ban objects
+     */
+    public Map<UUID, Ban> getAllBanDetails() {
+        Map<UUID, Ban> bans = new HashMap<>();
+
+        try {
+            boolean connected = connect();
+            if (!connected) {
+                plugin.log(Level.WARNING, "Failed to connect to database when getting all ban details");
+                return bans;
+            }
+
+            if (connection == null) {
+                plugin.log(Level.WARNING, "Database connection is null");
+                return bans;
+            }
+
+            String sql = "SELECT uuid, player_name, expiry, banned_by, banned_at, reason FROM hardcoreban_bans";
+
+            try (Statement stmt = connection.createStatement()) {
+                try (ResultSet rs = stmt.executeQuery(sql)) {
+                    long now = System.currentTimeMillis();
+
+                    while (rs.next()) {
+                        UUID uuid = UUID.fromString(rs.getString("uuid"));
+                        String playerName = rs.getString("player_name");
+                        long expiry = rs.getLong("expiry");
+                        String bannedBy = rs.getString("banned_by");
+                        long bannedAt = rs.getLong("banned_at");
+                        String reason = rs.getString("reason");
+
+                        // Only include non-expired bans
+                        if (expiry > now) {
+                            Ban ban = new Ban(uuid, playerName, expiry, bannedBy, bannedAt, reason);
+                            bans.put(uuid, ban);
+                        }
+                    }
+                }
+            }
+        } catch (SQLException e) {
+            plugin.log(Level.SEVERE, "Failed to get all ban details: " + e.getMessage());
+        }
+
+        return bans;
+    }
+
+    /**
+     * Removes expired bans from the database.
+     */
     public void cleanupExpiredBans() {
         try {
             boolean connected = connect();
@@ -324,6 +510,13 @@ public class DatabaseManager {
         }
     }
 
+    /**
+     * Executes a raw SQL query. Should only be used for admin commands.
+     *
+     * @param sql The SQL query to execute
+     * @param sender The command sender who will receive the results
+     * @throws SQLException If an SQL error occurs
+     */
     public void executeRawSql(String sql, CommandSender sender) throws SQLException {
         if (!connect()) {
             throw new SQLException("Could not connect to database");

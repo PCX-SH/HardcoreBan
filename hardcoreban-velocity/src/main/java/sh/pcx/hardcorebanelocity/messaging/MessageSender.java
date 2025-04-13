@@ -1,4 +1,4 @@
-package sh.pcx.hardcorebanelocity;
+package sh.pcx.hardcorebanelocity.messaging;
 
 import com.google.common.io.ByteArrayDataOutput;
 import com.google.common.io.ByteStreams;
@@ -12,8 +12,10 @@ import org.slf4j.Logger;
 import java.util.Optional;
 import java.util.UUID;
 
+import sh.pcx.hardcorebanelocity.HardcoreBanVelocityPlugin;
+
 /**
- * Utility class for sending messages to Paper servers
+ * Utility class for sending messages to Paper servers.
  */
 public class MessageSender {
 
@@ -21,6 +23,13 @@ public class MessageSender {
     private final Logger logger;
     private final ChannelIdentifier channelId;
 
+    /**
+     * Creates a new MessageSender.
+     *
+     * @param plugin The main plugin instance
+     * @param logger The plugin logger
+     * @param channelId The plugin messaging channel identifier
+     */
     public MessageSender(HardcoreBanVelocityPlugin plugin, Logger logger, ChannelIdentifier channelId) {
         this.plugin = plugin;
         this.logger = logger;
@@ -28,16 +37,18 @@ public class MessageSender {
     }
 
     /**
-     * Sends an unban message to the hardcore server
+     * Sends an unban message to the hardcore server.
      *
      * @param uuid The UUID of the player to unban
      * @return true if the message was sent, false otherwise
      */
     public boolean sendUnban(UUID uuid) {
         // Try to find the hardcore server first
-        Optional<RegisteredServer> optionalServer = plugin.getServer().getServer(plugin.getHardcoreServerName());
+        String hardcoreServerName = plugin.getConfigManager().getString("hardcore-server", "world");
+        Optional<RegisteredServer> optionalServer = plugin.getServer().getServer(hardcoreServerName);
+
         if (optionalServer.isEmpty()) {
-            logger.warn("Could not find hardcore server '{}' to send unban message", plugin.getHardcoreServerName());
+            logger.warn("Could not find hardcore server '{}' to send unban message", hardcoreServerName);
             return false;
         }
 
@@ -51,7 +62,7 @@ public class MessageSender {
         for (Player player : plugin.getServer().getAllPlayers()) {
             Optional<ServerConnection> currentServer = player.getCurrentServer();
             if (currentServer.isPresent() &&
-                    currentServer.get().getServerInfo().getName().equals(plugin.getHardcoreServerName())) {
+                    currentServer.get().getServerInfo().getName().equals(hardcoreServerName)) {
 
                 try {
                     currentServer.get().sendPluginMessage(channelId, messageData);
@@ -65,14 +76,11 @@ public class MessageSender {
             }
         }
 
-        // Second try: Connect to the server and send the message
-        logger.info("No players on hardcore server, attempting to connect to send unban message");
-
-        // Try to find any player to use for connection
+        // Second try: Try to send through any player's current server
         if (!plugin.getServer().getAllPlayers().isEmpty()) {
             Player anyPlayer = plugin.getServer().getAllPlayers().iterator().next();
 
-            // Try sending through current server first
+            // Try sending through current server
             if (anyPlayer.getCurrentServer().isPresent()) {
                 try {
                     anyPlayer.getCurrentServer().get().sendPluginMessage(channelId, messageData);
@@ -90,16 +98,18 @@ public class MessageSender {
     }
 
     /**
-     * Sends a clear all bans message to the hardcore server
+     * Sends a clear all bans message to the hardcore server.
      *
      * @return true if the message was sent, false otherwise
      */
     public boolean sendClearAllBans() {
         // Try to find the hardcore server first
-        Optional<RegisteredServer> optionalServer = plugin.getServer().getServer(plugin.getHardcoreServerName());
+        String hardcoreServerName = plugin.getConfigManager().getString("hardcore-server", "world");
+        Optional<RegisteredServer> optionalServer = plugin.getServer().getServer(hardcoreServerName);
+
         if (optionalServer.isEmpty()) {
             logger.warn("Could not find hardcore server '{}' to send clear all bans message",
-                    plugin.getHardcoreServerName());
+                    hardcoreServerName);
             return false;
         }
 
@@ -112,11 +122,12 @@ public class MessageSender {
         for (Player player : plugin.getServer().getAllPlayers()) {
             Optional<ServerConnection> currentServer = player.getCurrentServer();
             if (currentServer.isPresent() &&
-                    currentServer.get().getServerInfo().getName().equals(plugin.getHardcoreServerName())) {
+                    currentServer.get().getServerInfo().getName().equals(hardcoreServerName)) {
 
                 try {
                     currentServer.get().sendPluginMessage(channelId, messageData);
-                    logger.info("Sent clear all bans message to hardcore server via {}", player.getUsername());
+                    logger.info("Sent clear all bans message to hardcore server via {}",
+                            player.getUsername());
                     return true;
                 } catch (Exception e) {
                     logger.warn("Failed to send plugin message through player {}: {}",
@@ -125,7 +136,7 @@ public class MessageSender {
             }
         }
 
-        // Try to find any player to use for message sending
+        // Second try: Try to send through any player's current server
         if (!plugin.getServer().getAllPlayers().isEmpty()) {
             Player anyPlayer = plugin.getServer().getAllPlayers().iterator().next();
 
@@ -143,6 +154,49 @@ public class MessageSender {
         }
 
         logger.warn("Could not send clear all bans message: no suitable players online");
+        return false;
+    }
+
+    /**
+     * Sends a ban check request to the hardcore server.
+     *
+     * @param uuid The UUID of the player to check
+     * @return true if the message was sent, false otherwise
+     */
+    public boolean sendBanCheck(UUID uuid) {
+        // Try to find the hardcore server first
+        String hardcoreServerName = plugin.getConfigManager().getString("hardcore-server", "world");
+        Optional<RegisteredServer> optionalServer = plugin.getServer().getServer(hardcoreServerName);
+
+        if (optionalServer.isEmpty()) {
+            logger.warn("Could not find hardcore server '{}' to send ban check message",
+                    hardcoreServerName);
+            return false;
+        }
+
+        // Create message
+        ByteArrayDataOutput out = ByteStreams.newDataOutput();
+        out.writeUTF("CHECK_BAN");
+        out.writeUTF(uuid.toString());
+        byte[] messageData = out.toByteArray();
+
+        // Try to find a player to send the message through
+        if (!plugin.getServer().getAllPlayers().isEmpty()) {
+            Player anyPlayer = plugin.getServer().getAllPlayers().iterator().next();
+
+            // Try sending through current server
+            if (anyPlayer.getCurrentServer().isPresent()) {
+                try {
+                    anyPlayer.getCurrentServer().get().sendPluginMessage(channelId, messageData);
+                    logger.debug("Sent ban check message for {}", uuid);
+                    return true;
+                } catch (Exception e) {
+                    logger.warn("Failed to send ban check message: {}", e.getMessage());
+                }
+            }
+        }
+
+        logger.warn("Could not send ban check message: no players online");
         return false;
     }
 }

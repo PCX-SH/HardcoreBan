@@ -1,7 +1,5 @@
 package sh.pcx.hardcorebanelocity;
 
-import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
 import com.google.inject.Inject;
 import com.velocitypowered.api.event.Subscribe;
 import com.velocitypowered.api.event.proxy.ProxyInitializeEvent;
@@ -15,17 +13,18 @@ import com.velocitypowered.api.proxy.messages.MinecraftChannelIdentifier;
 import com.velocitypowered.api.command.CommandManager;
 import com.velocitypowered.api.command.CommandMeta;
 
-import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 
 import org.slf4j.Logger;
-import org.yaml.snakeyaml.Yaml;
-import sh.pcx.hardcorebanelocity.database.DatabaseManager;
 
-import java.io.File;
-import java.io.FileReader;
-import java.io.InputStream;
-import java.nio.file.Files;
+import sh.pcx.hardcorebanelocity.commands.HardcoreBanCommand;
+import sh.pcx.hardcorebanelocity.database.DatabaseManager;
+import sh.pcx.hardcorebanelocity.listeners.PluginMessageListener;
+import sh.pcx.hardcorebanelocity.listeners.ServerConnectListener;
+import sh.pcx.hardcorebanelocity.messaging.MessageSender;
+import sh.pcx.hardcorebanelocity.util.ConfigManager;
+import sh.pcx.hardcorebanelocity.util.TimeFormatter;
+
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
@@ -33,12 +32,16 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
+/**
+ * Main class for the HardcoreBan Velocity plugin.
+ * Coordinates all plugin functionality.
+ */
 @Plugin(
         id = "hardcoreban-velocity",
         name = "HardcoreBan-Velocity",
         version = "1.0.0",
         description = "Prevents banned players from joining the hardcore server",
-        authors = {"Your Name"}
+        authors = {"Reset64"}
 )
 public class HardcoreBanVelocityPlugin {
 
@@ -46,19 +49,23 @@ public class HardcoreBanVelocityPlugin {
     private final Logger logger;
     private final Path dataDirectory;
     private final MiniMessage miniMessage = MiniMessage.miniMessage();
-    private final Gson gson = new GsonBuilder().setPrettyPrinting().create();
 
-    private Map<String, Object> config;
-    private Map<UUID, Long> cachedBans = new ConcurrentHashMap<>();
-    private Map<UUID, String> playerNames = new ConcurrentHashMap<>();
-    private ChannelIdentifier channelIdentifier;
-    private MessageSender messageSender;
+    private ConfigManager configManager;
     private DatabaseManager databaseManager;
-    private Map<UUID, String> playerNameCache = new ConcurrentHashMap<>();
-    private String hardcoreServerName;
-    private File sharedBanFile;
-    private long lastSharedFileCheck = 0;
+    private MessageSender messageSender;
+    private ChannelIdentifier channelIdentifier;
 
+    // Cache of player names for UUID lookup
+    private Map<UUID, String> playerNameCache = new ConcurrentHashMap<>();
+
+    /**
+     * Creates a new instance of the plugin.
+     * Dependency injection is handled by Velocity.
+     *
+     * @param server The Velocity proxy server
+     * @param logger The logger
+     * @param dataDirectory The plugin data directory
+     */
     @Inject
     public HardcoreBanVelocityPlugin(ProxyServer server, Logger logger, @DataDirectory Path dataDirectory) {
         this.server = server;
@@ -66,20 +73,16 @@ public class HardcoreBanVelocityPlugin {
         this.dataDirectory = dataDirectory;
     }
 
+    /**
+     * Initializes the plugin when the proxy starts.
+     *
+     * @param event The proxy initialization event
+     */
     @Subscribe
     public void onProxyInitialization(ProxyInitializeEvent event) {
         try {
-            // Create the data directory if it doesn't exist
-            if (!Files.exists(dataDirectory)) {
-                try {
-                    Files.createDirectories(dataDirectory);
-                } catch (Exception e) {
-                    logger.error("Failed to create data directory", e);
-                }
-            }
-
-            // Load configuration
-            loadConfig();
+            // Initialize configuration
+            configManager = new ConfigManager(logger, dataDirectory);
 
             // Initialize database manager
             databaseManager = new DatabaseManager(this);
@@ -96,19 +99,21 @@ public class HardcoreBanVelocityPlugin {
             }
 
             // Register plugin messaging channel
-            channelIdentifier = MinecraftChannelIdentifier.from("hardcoreban:channel");
-            server.getChannelRegistrar().register(channelIdentifier);
+            setupPluginMessaging();
 
-            // Register plugin message listener
-            server.getEventManager().register(this, new PluginMessageListener(this));
+            // Register event listeners
+            registerEventListeners();
 
-            // Register server connect listener
-            server.getEventManager().register(this, new ServerConnectListener(this));
-
-            // Register command
+            // Register commands
             registerCommands();
 
-            // Only try to preload bans if database connection was successful
+            // Initialize message sender for Velocity->Paper communication
+            messageSender = new MessageSender(this, logger, channelIdentifier);
+
+            // Start tasks
+            startTasks();
+
+            // Preload bans if database connection was successful
             if (dbConnected) {
                 try {
                     refreshBans();
@@ -123,6 +128,11 @@ public class HardcoreBanVelocityPlugin {
         }
     }
 
+    /**
+     * Cleans up when the proxy shuts down.
+     *
+     * @param event The proxy shutdown event
+     */
     @Subscribe
     public void onProxyShutdown(ProxyShutdownEvent event) {
         // Disconnect from database
@@ -133,87 +143,25 @@ public class HardcoreBanVelocityPlugin {
         logger.info("HardcoreBan Velocity plugin shutting down");
     }
 
-    private void loadConfig() {
-        try {
-            Path configPath = dataDirectory.resolve("config.yml");
-
-            // Create default config if it doesn't exist
-            if (!Files.exists(configPath)) {
-                try (InputStream in = getClass().getResourceAsStream("/config.yml")) {
-                    if (in != null) {
-                        Files.copy(in, configPath);
-                    } else {
-                        // Create empty config with defaults
-                        Map<String, Object> defaultConfig = new HashMap<>();
-                        defaultConfig.put("hardcore-server", "world");
-                        defaultConfig.put("check-interval", 10);
-
-                        Map<String, String> messages = new HashMap<>();
-                        messages.put("title-banned", "<red>Hardcore Mode Banned");
-                        messages.put("subtitle-banned", "<yellow>Ban expires in {time}");
-                        messages.put("chat-banned", "<red>You cannot connect to the hardcore server for {time}.");
-
-                        defaultConfig.put("messages", messages);
-
-                        Files.writeString(configPath, new Yaml().dump(defaultConfig));
-                    }
-                    logger.info("Created default configuration file");
-                } catch (Exception e) {
-                    logger.error("Failed to create default config", e);
-                }
-            }
-
-            // Load the config
-            try (FileReader reader = new FileReader(configPath.toFile())) {
-                config = new Yaml().load(reader);
-
-                // Get the hardcore server name
-                hardcoreServerName = getConfigString("hardcore-server", "world");
-                logger.info("Hardcore server name configured as: {}", hardcoreServerName);
-            }
-        } catch (Exception e) {
-            logger.error("Failed to load config", e);
-
-            // Create default config in memory
-            config = new HashMap<>();
-            config.put("hardcore-server", "world");
-            config.put("check-interval", 10);
-
-            Map<String, String> messages = new HashMap<>();
-            messages.put("title-banned", "<red>Hardcore Mode Banned");
-            messages.put("subtitle-banned", "<yellow>Ban expires in {time}");
-            messages.put("chat-banned", "<red>You cannot connect to the hardcore server for {time}.");
-
-            config.put("messages", messages);
-        }
+    /**
+     * Sets up plugin messaging channels.
+     */
+    private void setupPluginMessaging() {
+        channelIdentifier = MinecraftChannelIdentifier.from("hardcoreban:channel");
+        server.getChannelRegistrar().register(channelIdentifier);
     }
 
-    private void setupSharedBanFile() {
-        // First try to locate it in the server root directory
-        Path serverDir = dataDirectory.getParent().getParent();
-        Path paperPluginsDir = serverDir.resolve("plugins/HardcoreBan");
-
-        sharedBanFile = paperPluginsDir.resolve("hardcoreban_shared.yml").toFile();
-
-        if (!sharedBanFile.exists()) {
-            // Try alternate locations as fallback
-            logger.warn("Shared ban file not found at expected location: {}", sharedBanFile.getAbsolutePath());
-
-            // Try in our own plugin directory as a fallback
-            sharedBanFile = dataDirectory.resolve("hardcoreban_shared.yml").toFile();
-
-            if (!sharedBanFile.exists()) {
-                logger.warn("Shared ban file not found - connection to Paper server not established");
-                logger.warn("Bans won't be enforced until connection is established");
-            }
-        }
-
-        logger.info("Using shared ban file at: {}", sharedBanFile.getAbsolutePath());
-
-        // Do an initial check of the shared file
-        checkSharedFile();
+    /**
+     * Registers event listeners.
+     */
+    private void registerEventListeners() {
+        server.getEventManager().register(this, new PluginMessageListener(this));
+        server.getEventManager().register(this, new ServerConnectListener(this));
     }
 
+    /**
+     * Registers commands.
+     */
     private void registerCommands() {
         CommandManager commandManager = server.getCommandManager();
 
@@ -224,110 +172,65 @@ public class HardcoreBanVelocityPlugin {
         commandManager.register(commandMeta, new HardcoreBanCommand(this));
     }
 
-    private void startCheckTask() {
-        int checkInterval = getConfigInt("check-interval", 10); // Default to 10 seconds
-        server.getScheduler().buildTask(this, this::checkSharedFile)
+    /**
+     * Starts scheduled tasks.
+     */
+    private void startTasks() {
+        int checkInterval = configManager.getInt("check-interval", 10); // Default to 10 seconds
+
+        // Refresh bans from database periodically
+        server.getScheduler().buildTask(this, this::refreshBans)
                 .repeat(checkInterval, TimeUnit.SECONDS)
                 .schedule();
     }
 
-    public void checkSharedFile() {
-        if (sharedBanFile == null || !sharedBanFile.exists()) {
-            return;
-        }
-
-        // Only check if the file has been modified since we last checked
-        if (sharedBanFile.lastModified() <= lastSharedFileCheck) {
-            return;
-        }
-
-        try (FileReader reader = new FileReader(sharedBanFile)) {
-            Yaml yaml = new Yaml();
-            Map<String, Object> data = yaml.load(reader);
-
-            // Update our cache
-            Map<UUID, Long> newBans = new ConcurrentHashMap<>();
-            Map<UUID, String> newNames = new ConcurrentHashMap<>();
-
-            if (data != null) {
-                // Read ban data
-                if (data.containsKey("bans")) {
-                    Map<String, Object> bans = (Map<String, Object>) data.get("bans");
-                    for (Map.Entry<String, Object> entry : bans.entrySet()) {
-                        try {
-                            UUID uuid = UUID.fromString(entry.getKey());
-                            long expiry = ((Number) entry.getValue()).longValue();
-
-                            // Only add if not expired
-                            if (expiry > System.currentTimeMillis()) {
-                                newBans.put(uuid, expiry);
-                            }
-                        } catch (Exception e) {
-                            logger.warn("Invalid ban entry in shared file: {}", entry.getKey());
-                        }
-                    }
-                }
-
-                // Read name data
-                if (data.containsKey("names")) {
-                    Map<String, Object> names = (Map<String, Object>) data.get("names");
-                    for (Map.Entry<String, Object> entry : names.entrySet()) {
-                        try {
-                            UUID uuid = UUID.fromString(entry.getKey());
-                            String name = String.valueOf(entry.getValue());
-                            newNames.put(uuid, name);
-                        } catch (Exception e) {
-                            logger.warn("Invalid name entry in shared file: {}", entry.getKey());
-                        }
-                    }
-                }
-            }
-
-            // Check if there were changes
-            if (!newBans.equals(cachedBans)) {
-                int added = 0, removed = 0;
-
-                // Find new bans
-                for (UUID uuid : newBans.keySet()) {
-                    if (!cachedBans.containsKey(uuid)) {
-                        added++;
-                    }
-                }
-
-                // Find removed bans
-                for (UUID uuid : cachedBans.keySet()) {
-                    if (!newBans.containsKey(uuid)) {
-                        removed++;
-                    }
-                }
-
-                logger.info("Updated ban cache from shared file: {} added, {} removed", added, removed);
-
-                // Update our cache
-                cachedBans = newBans;
-                playerNames = newNames;
-            }
-
-            // Update last check time
-            lastSharedFileCheck = sharedBanFile.lastModified();
-
+    /**
+     * Refreshes ban data from the database.
+     */
+    public void refreshBans() {
+        try {
+            databaseManager.getAllBans();
+            logger.debug("Refreshed bans from database");
         } catch (Exception e) {
-            logger.error("Error reading shared ban file", e);
+            logger.error("Error refreshing bans: {}", e.getMessage());
         }
     }
 
+    /**
+     * Checks if a player is banned.
+     *
+     * @param uuid The UUID of the player
+     * @return true if the player is banned, false otherwise
+     */
     public boolean isBanned(UUID uuid) {
         return databaseManager.isBanned(uuid);
     }
 
+    /**
+     * Gets the time left on a player's ban.
+     *
+     * @param uuid The UUID of the player
+     * @return The time left in milliseconds, or 0 if not banned
+     */
     public long getTimeLeft(UUID uuid) {
         return databaseManager.getTimeLeft(uuid);
     }
 
+    /**
+     * Gets all banned players.
+     *
+     * @return A map of UUID to expiry time
+     */
     public Map<UUID, Long> getBannedPlayers() {
         return databaseManager.getAllBans();
     }
 
+    /**
+     * Gets a player's name from their UUID, either from cache or online players.
+     *
+     * @param uuid The UUID of the player
+     * @return The player's name, or a string containing their UUID if not found
+     */
     public String getPlayerName(UUID uuid) {
         // Check if we have a cached name
         if (playerNameCache.containsKey(uuid)) {
@@ -340,82 +243,66 @@ public class HardcoreBanVelocityPlugin {
                 .orElse("Unknown (" + uuid.toString() + ")");
     }
 
+    /**
+     * Sets a player's name in the cache.
+     *
+     * @param uuid The UUID of the player
+     * @param name The name of the player
+     */
     public void setPlayerName(UUID uuid, String name) {
         playerNameCache.put(uuid, name);
     }
 
-    public void refreshBans() {
-        try {
-            // This will also update the player name cache
-            databaseManager.getAllBans();
-        } catch (Exception e) {
-            logger.error("Error refreshing bans: {}", e.getMessage());
-            // Continue plugin initialization even if ban refresh fails
-        }
-    }
-
-    // Helper method to get strings from config
-    public String getConfigString(String path, String defaultValue) {
-        if (config == null) {
-            return defaultValue;
-        }
-
-        try {
-            String[] parts = path.split("\\.");
-            Object current = config;
-
-            for (String part : parts) {
-                if (current instanceof Map) {
-                    current = ((Map<String, Object>) current).get(part);
-                    if (current == null) {
-                        return defaultValue;
-                    }
-                } else {
-                    return defaultValue;
-                }
-            }
-
-            return String.valueOf(current);
-        } catch (Exception e) {
-            logger.warn("Error getting config value for path: {}", path, e);
-            return defaultValue;
-        }
-    }
-
-    // Helper method to get integers from config
-    public int getConfigInt(String path, int defaultValue) {
-        String strValue = getConfigString(path, String.valueOf(defaultValue));
-        try {
-            return Integer.parseInt(strValue);
-        } catch (NumberFormatException e) {
-            return defaultValue;
-        }
-    }
-
-    public String formatTime(long millis) {
-        long hours = TimeUnit.MILLISECONDS.toHours(millis);
-        millis -= TimeUnit.HOURS.toMillis(hours);
-        long minutes = TimeUnit.MILLISECONDS.toMinutes(millis);
-
-        if (hours > 0) {
-            return hours + "h " + minutes + "m";
-        } else {
-            return minutes + "m";
-        }
-    }
-
+    /**
+     * Gets the Velocity server instance.
+     *
+     * @return The server instance
+     */
     public ProxyServer getServer() {
         return server;
     }
 
-    public String getHardcoreServerName() {
-        return hardcoreServerName;
-    }
-
+    /**
+     * Gets the plugin logger.
+     *
+     * @return The logger
+     */
     public Logger getLogger() {
         return logger;
     }
 
+    /**
+     * Gets the configuration manager.
+     *
+     * @return The configuration manager
+     */
+    public ConfigManager getConfigManager() {
+        return configManager;
+    }
+
+    /**
+     * Gets the database manager.
+     *
+     * @return The database manager
+     */
+    public DatabaseManager getDatabaseManager() {
+        return databaseManager;
+    }
+
+    /**
+     * Gets the message sender.
+     *
+     * @return The message sender
+     */
+    public MessageSender getMessageSender() {
+        return messageSender;
+    }
+
+    /**
+     * Gets the MiniMessage instance.
+     *
+     * @return The MiniMessage instance
+     */
     public MiniMessage getMiniMessage() {
         return miniMessage;
     }

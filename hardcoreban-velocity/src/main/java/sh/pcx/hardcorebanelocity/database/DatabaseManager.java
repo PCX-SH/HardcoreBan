@@ -12,7 +12,12 @@ import java.util.UUID;
 
 import org.slf4j.Logger;
 import sh.pcx.hardcorebanelocity.HardcoreBanVelocityPlugin;
+import sh.pcx.hardcorebanelocity.util.ConfigManager;
 
+/**
+ * Manages database operations for the HardcoreBan Velocity plugin.
+ * Handles connections and ban data retrieval.
+ */
 public class DatabaseManager {
     private final HardcoreBanVelocityPlugin plugin;
     private final Logger logger;
@@ -23,18 +28,31 @@ public class DatabaseManager {
     private final String password;
     private Connection connection;
 
+    /**
+     * Creates a new DatabaseManager instance.
+     *
+     * @param plugin The main plugin instance
+     */
     public DatabaseManager(HardcoreBanVelocityPlugin plugin) {
         this.plugin = plugin;
         this.logger = plugin.getLogger();
 
+        // Get the ConfigManager from the plugin
+        ConfigManager configManager = plugin.getConfigManager();
+
         // Load database configuration from config
-        this.host = plugin.getConfigString("database.host", "localhost");
-        this.port = plugin.getConfigInt("database.port", 3306);
-        this.database = plugin.getConfigString("database.database", "minecraft");
-        this.username = plugin.getConfigString("database.username", "root");
-        this.password = plugin.getConfigString("database.password", "");
+        this.host = configManager.getString("database.host", "localhost");
+        this.port = configManager.getInt("database.port", 3306);
+        this.database = configManager.getString("database.database", "minecraft");
+        this.username = configManager.getString("database.username", "root");
+        this.password = configManager.getString("database.password", "");
     }
 
+    /**
+     * Connects to the database.
+     *
+     * @return true if connection successful, false otherwise
+     */
     public boolean connect() {
         try {
             if (connection != null && !connection.isClosed()) {
@@ -64,6 +82,9 @@ public class DatabaseManager {
         }
     }
 
+    /**
+     * Creates the required database table if it doesn't exist.
+     */
     private void createTableIfNotExists() {
         try {
             if (connection == null || connection.isClosed()) {
@@ -88,6 +109,9 @@ public class DatabaseManager {
         }
     }
 
+    /**
+     * Disconnects from the database.
+     */
     public void disconnect() {
         try {
             if (connection != null && !connection.isClosed()) {
@@ -99,6 +123,12 @@ public class DatabaseManager {
         }
     }
 
+    /**
+     * Checks if a player is currently banned.
+     *
+     * @param uuid The UUID of the player
+     * @return true if the player is banned, false otherwise
+     */
     public boolean isBanned(UUID uuid) {
         try {
             connect();
@@ -122,6 +152,12 @@ public class DatabaseManager {
         }
     }
 
+    /**
+     * Gets the time left on a player's ban in milliseconds.
+     *
+     * @param uuid The UUID of the player
+     * @return The time left in milliseconds, or 0 if the player isn't banned
+     */
     public long getTimeLeft(UUID uuid) {
         try {
             connect();
@@ -146,6 +182,11 @@ public class DatabaseManager {
         }
     }
 
+    /**
+     * Gets all currently active bans.
+     *
+     * @return A map of UUID to expiry time
+     */
     public Map<UUID, Long> getAllBans() {
         Map<UUID, Long> bans = new HashMap<>();
 

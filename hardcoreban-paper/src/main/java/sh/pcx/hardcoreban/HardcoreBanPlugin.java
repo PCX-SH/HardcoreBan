@@ -1,55 +1,50 @@
 package sh.pcx.hardcoreban;
 
-import java.io.File;
-import java.io.IOException;
-import java.util.UUID;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.concurrent.TimeUnit;
-import java.util.logging.Level;
-
 import org.bukkit.Bukkit;
 import org.bukkit.GameMode;
 import org.bukkit.command.CommandSender;
-import org.bukkit.configuration.file.FileConfiguration;
-import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
-import org.bukkit.event.EventHandler;
-import org.bukkit.event.Listener;
-import org.bukkit.event.entity.PlayerDeathEvent;
-import org.bukkit.event.player.PlayerJoinEvent;
-import org.bukkit.event.player.PlayerRespawnEvent;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitRunnable;
+
+import com.google.common.io.ByteArrayDataOutput;
+import com.google.common.io.ByteStreams;
 
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 
-import com.google.common.io.ByteArrayDataOutput;
-import com.google.common.io.ByteStreams;
+import sh.pcx.hardcoreban.commands.HardcoreBanCommand;
 import sh.pcx.hardcoreban.database.DatabaseManager;
+import sh.pcx.hardcoreban.listeners.PlayerDeathListener;
+import sh.pcx.hardcoreban.listeners.PlayerJoinListener;
+import sh.pcx.hardcoreban.listeners.PlayerRespawnListener;
+import sh.pcx.hardcoreban.messaging.VelocityMessageListener;
+import sh.pcx.hardcoreban.model.Ban;
+import sh.pcx.hardcoreban.util.ConfigManager;
+import sh.pcx.hardcoreban.util.TimeFormatter;
 
-public class HardcoreBanPlugin extends JavaPlugin implements Listener {
-    private FileConfiguration config;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.UUID;
+import java.util.logging.Level;
+
+/**
+ * Main plugin class for HardcoreBan Paper implementation.
+ * Coordinates all plugin functionality.
+ */
+public class HardcoreBanPlugin extends JavaPlugin {
     private DatabaseManager databaseManager;
-    private MiniMessage miniMessage = MiniMessage.miniMessage();
+    private ConfigManager configManager;
+    private MiniMessage miniMessage;
 
     @Override
     public void onEnable() {
         try {
-            // Register this class as event listener
-            getServer().getPluginManager().registerEvents(this, this);
+            // Initialize Mini Message
+            miniMessage = MiniMessage.miniMessage();
 
-            // Setup plugin messaging channel for communication with Velocity
-            getServer().getMessenger().registerOutgoingPluginChannel(this, "hardcoreban:channel");
-
-            // Register incoming plugin channel for Velocity messages
-            getServer().getMessenger().registerIncomingPluginChannel(this, "hardcoreban:channel",
-                    new VelocityMessageListener(this));
-
-            // Load or create the configuration
-            saveDefaultConfig();
-            config = getConfig();
+            // Load configuration
+            configManager = new ConfigManager(this);
 
             // Suppress MySQL driver warnings
             try {
@@ -59,7 +54,7 @@ public class HardcoreBanPlugin extends JavaPlugin implements Listener {
                 // Ignore any errors when trying to configure the logger
             }
 
-            // Initialize database manager
+            // Initialize database
             databaseManager = new DatabaseManager(this);
             boolean dbConnected = false;
 
@@ -76,22 +71,17 @@ public class HardcoreBanPlugin extends JavaPlugin implements Listener {
                 return;
             }
 
+            // Register plugin messaging channels
+            setupPluginMessaging();
+
+            // Register event listeners
+            registerEventListeners();
+
             // Register commands
             getCommand("hardcoreban").setExecutor(new HardcoreBanCommand(this));
 
-            // Setup checkBans task to run regularly
-            long checkInterval = config.getLong("check-interval", 60) * 20; // Convert seconds to ticks
-            new BukkitRunnable() {
-                @Override
-                public void run() {
-                    try {
-                        checkBans();
-                    } catch (Exception e) {
-                        log(Level.SEVERE, "Error checking bans: " + e.getMessage());
-                        e.printStackTrace();
-                    }
-                }
-            }.runTaskTimer(this, checkInterval, checkInterval);
+            // Setup scheduled tasks
+            setupScheduledTasks();
 
             log(Level.INFO, "HardcoreBan has been enabled!");
         } catch (Exception e) {
@@ -115,255 +105,49 @@ public class HardcoreBanPlugin extends JavaPlugin implements Listener {
         log(Level.INFO, "HardcoreBan has been disabled!");
     }
 
-    @EventHandler
-    public void onPlayerDeath(PlayerDeathEvent event) {
-        Player player = event.getPlayer();
+    /**
+     * Sets up plugin messaging channels for communication with Velocity.
+     */
+    private void setupPluginMessaging() {
+        // Register outgoing plugin channel
+        getServer().getMessenger().registerOutgoingPluginChannel(this, "hardcoreban:channel");
 
-        // Log that we're processing a death event
-        log(Level.INFO, "Processing death event for player " + player.getName());
-
-        // Check if we're in the right world
-        if (!config.getBoolean("affect-all-worlds", false)) {
-            String hardcoreWorld = config.getString("hardcore-world", "world");
-            if (!player.getWorld().getName().equals(hardcoreWorld)) {
-                log(Level.INFO, "Player " + player.getName() + " died in world " + player.getWorld().getName() +
-                        " which is not the hardcore world (" + hardcoreWorld + "). Ignoring.");
-                return;
-            }
-        }
-
-        // Check if player has bypass permission
-        if (player.hasPermission("hardcoreban.bypass")) {
-            log(Level.INFO, player.getName() + " died but has the bypass permission.");
-            return;
-        }
-
-        // Calculate ban duration in milliseconds based on the new config
-        String unit = config.getString("ban-duration.unit", "hours").toLowerCase();
-        int amount = config.getInt("ban-duration.amount", 24);
-
-        long banDuration;
-        if ("minutes".equals(unit)) {
-            banDuration = amount * 60 * 1000; // Convert minutes to ms
-        } else {
-            // Default to hours
-            banDuration = amount * 60 * 60 * 1000; // Convert hours to ms
-        }
-
-        long expiry = System.currentTimeMillis() + banDuration;
-        log(Level.INFO, "Attempting to ban player " + player.getName() + " until " + new java.util.Date(expiry));
-
-        // Ban the player
-        boolean banSuccess = banPlayer(player.getUniqueId(), expiry);
-
-        if (banSuccess) {
-            // Format the ban time for messages
-            String formattedBanTime = formatBanTime(banDuration);
-
-            // Notify the player about the ban
-            String deathMessage = config.getString("messages.death-ban", "<red>You died in hardcore mode! You are banned for {time}.");
-            deathMessage = deathMessage.replace("{time}", formattedBanTime);
-            player.sendMessage(miniMessage.deserialize(deathMessage));
-
-            // Set gamemode to spectator if configured to do so
-            boolean setSpectatorOnDeath = config.getBoolean("set-spectator-on-death", true);
-            if (setSpectatorOnDeath) {
-                // Set to spectator immediately to allow them to see their death location
-                player.setGameMode(GameMode.SPECTATOR);
-
-                // Create the kick message
-                final String kickMessage = config.getString("messages.kick-message",
-                                "<red>You died in hardcore mode! You are banned for {time}.")
-                        .replace("{time}", formattedBanTime);
-
-                // Schedule a task to kick the player after a short delay
-                int kickDelayTicks = config.getInt("kick-delay-ticks", 60);
-
-                new BukkitRunnable() {
-                    @Override
-                    public void run() {
-                        if (player.isOnline()) {
-                            // Double check they're still banned before kicking
-                            if (isBanned(player.getUniqueId())) {
-                                player.kick(miniMessage.deserialize(kickMessage));
-                            } else {
-                                log(Level.WARNING, "Player " + player.getName() +
-                                        " was supposed to be banned but isn't. Not kicking.");
-                                resetPlayerGameMode(player);
-                            }
-                        }
-                    }
-                }.runTaskLater(this, kickDelayTicks);
-            } else {
-                // Kick immediately if not using spectator mode
-                String kickMessage = config.getString("messages.kick-message",
-                        "<red>You died in hardcore mode! You are banned for {time}.");
-                kickMessage = kickMessage.replace("{time}", formattedBanTime);
-                player.kick(miniMessage.deserialize(kickMessage));
-            }
-        } else {
-            log(Level.SEVERE, "Failed to ban player " + player.getName() + " after death!");
-        }
+        // Register incoming plugin channel
+        getServer().getMessenger().registerIncomingPluginChannel(this, "hardcoreban:channel",
+                new VelocityMessageListener(this));
     }
 
-    @EventHandler
-    public void onPlayerRespawn(PlayerRespawnEvent event) {
-        Player player = event.getPlayer();
-
-        // Check if we're in the right world
-        if (!config.getBoolean("affect-all-worlds", false)) {
-            String hardcoreWorld = config.getString("hardcore-world", "world");
-            if (!player.getWorld().getName().equals(hardcoreWorld)) {
-                return;
-            }
-        }
-
-        // Check if the player had died and is in spectator mode
-        if (player.getGameMode() == GameMode.SPECTATOR && isBanned(player.getUniqueId())) {
-            // This should never happen as the player should have been kicked,
-            // but just in case they're still here
-            new BukkitRunnable() {
-                @Override
-                public void run() {
-                    if (player.isOnline()) {
-                        long timeLeft = getTimeLeft(player.getUniqueId());
-                        String kickMessage = config.getString("messages.join-banned", "<red>You are still banned from hardcore mode for {time}.");
-                        kickMessage = kickMessage.replace("{time}", formatTime(timeLeft));
-                        player.kick(miniMessage.deserialize(kickMessage));
-                    }
-                }
-            }.runTaskLater(this, 5L); // Short delay
-        }
+    /**
+     * Registers all event listeners.
+     */
+    private void registerEventListeners() {
+        getServer().getPluginManager().registerEvents(new PlayerDeathListener(this), this);
+        getServer().getPluginManager().registerEvents(new PlayerJoinListener(this), this);
+        getServer().getPluginManager().registerEvents(new PlayerRespawnListener(this), this);
     }
 
-    @EventHandler
-    public void onPlayerJoin(PlayerJoinEvent event) {
-        Player player = event.getPlayer();
-        UUID uuid = player.getUniqueId();
-
-        log(Level.INFO, "Player " + player.getName() + " joined. Checking ban status...");
-
-        // Check if player is banned
-        boolean banned = isBanned(uuid);
-        log(Level.INFO, "Ban check for " + player.getName() + ": " + (banned ? "BANNED" : "NOT BANNED"));
-
-        if (banned) {
-            long timeLeft = getTimeLeft(uuid);
-            log(Level.INFO, "Ban time left for " + player.getName() + ": " + timeLeft + "ms");
-
-            // If still banned, kick them
-            if (timeLeft > 0) {
-                // Create the kick message outside the inner class so it's effectively final
-                final String kickMessage = config.getString("messages.join-banned", "<red>You are still banned from hardcore mode for {time}.")
-                        .replace("{time}", formatTime(timeLeft));
-
-                // Give them a moment to see the message before kicking
-                new BukkitRunnable() {
-                    @Override
-                    public void run() {
-                        if (player.isOnline()) {
-                            player.kick(miniMessage.deserialize(kickMessage));
-                        }
-                    }
-                }.runTaskLater(this, 5L);
-            } else {
-                // Ban expired, remove it and reset gamemode
-                log(Level.INFO, "Ban for " + player.getName() + " has expired. Removing ban and resetting gamemode.");
-                removeBan(uuid);
-                resetPlayerGameMode(player);
-            }
-        } else {
-            // Not banned, but check if they're in spectator mode and reset them if needed
-            // This handles the case where they might have been in spectator mode when banned
-            if (player.getGameMode() == GameMode.SPECTATOR) {
-                // Check if we're in the right world
-                if (config.getBoolean("affect-all-worlds", false) ||
-                        player.getWorld().getName().equals(config.getString("hardcore-world", "world"))) {
-
-                    log(Level.INFO, "Player " + player.getName() + " is in spectator mode but not banned. Resetting gamemode.");
-                    resetPlayerGameMode(player);
+    /**
+     * Sets up scheduled tasks that run periodically.
+     */
+    private void setupScheduledTasks() {
+        // Setup ban check task
+        long checkInterval = getConfig().getLong("check-interval", 60) * 20; // Convert seconds to ticks
+        new BukkitRunnable() {
+            @Override
+            public void run() {
+                try {
+                    checkBans();
+                } catch (Exception e) {
+                    log(Level.SEVERE, "Error checking bans: " + e.getMessage());
+                    e.printStackTrace();
                 }
             }
-        }
+        }.runTaskTimer(this, checkInterval, checkInterval);
     }
 
-    public boolean banPlayer(UUID uuid, long expiry) {
-        try {
-            Player player = Bukkit.getPlayer(uuid);
-            String playerName = player != null ? player.getName() : Bukkit.getOfflinePlayer(uuid).getName();
-            if (playerName == null) playerName = uuid.toString();
-
-            boolean success = databaseManager.addBan(uuid, playerName, expiry);
-
-            if (success) {
-                // Notify Velocity of the ban
-                sendBanToVelocity(uuid, expiry);
-
-                log(Level.INFO, "Player " + playerName + " (" + uuid + ") has been banned until " + new java.util.Date(expiry));
-            } else {
-                log(Level.WARNING, "Failed to add ban for player " + playerName + " (" + uuid + ")");
-            }
-
-            return success;
-        } catch (Exception e) {
-            log(Level.SEVERE, "Error banning player " + uuid + ": " + e.getMessage());
-            e.printStackTrace();
-            return false;
-        }
-    }
-
-    public void removeBan(UUID uuid) {
-        try {
-            boolean removed = databaseManager.removeBan(uuid);
-
-            if (removed) {
-                // Also try to notify Velocity of the ban removal
-                sendBanRemovalToVelocity(uuid);
-
-                log(Level.INFO, "Ban removed for player " + uuid);
-            } else {
-                log(Level.FINE, "Attempted to remove ban for player " + uuid + " but they weren't banned");
-            }
-        } catch (Exception e) {
-            log(Level.SEVERE, "Error removing ban for player " + uuid + ": " + e.getMessage());
-            e.printStackTrace();
-        }
-    }
-
-    public void clearAllBans() {
-        try {
-            databaseManager.clearAllBans();
-
-            // Notify Velocity to clear all bans
-            sendClearAllBansToVelocity();
-
-            log(Level.INFO, "All bans cleared");
-        } catch (Exception e) {
-            log(Level.SEVERE, "Error clearing all bans: " + e.getMessage());
-            e.printStackTrace();
-        }
-    }
-
-    public boolean isBanned(UUID uuid) {
-        try {
-            return databaseManager.isBanned(uuid);
-        } catch (Exception e) {
-            log(Level.SEVERE, "Error checking if player " + uuid + " is banned: " + e.getMessage());
-            e.printStackTrace();
-            return false;
-        }
-    }
-
-    public long getTimeLeft(UUID uuid) {
-        try {
-            return databaseManager.getTimeLeft(uuid);
-        } catch (Exception e) {
-            log(Level.SEVERE, "Error getting time left for player " + uuid + ": " + e.getMessage());
-            e.printStackTrace();
-            return 0;
-        }
-    }
-
+    /**
+     * Checks all bans, removing expired ones and resetting player gamemodes.
+     */
     public void checkBans() {
         try {
             // Clean up expired bans in the database
@@ -392,6 +176,115 @@ public class HardcoreBanPlugin extends JavaPlugin implements Listener {
         }
     }
 
+    /**
+     * Bans a player for the specified expiry time.
+     *
+     * @param uuid The UUID of the player to ban
+     * @param expiry The time when the ban will expire (in milliseconds)
+     * @return true if the ban was applied successfully, false otherwise
+     */
+    public boolean banPlayer(UUID uuid, long expiry) {
+        try {
+            Player player = Bukkit.getPlayer(uuid);
+            String playerName = player != null ? player.getName() : Bukkit.getOfflinePlayer(uuid).getName();
+            if (playerName == null) playerName = uuid.toString();
+
+            boolean success = databaseManager.addBan(uuid, playerName, expiry);
+
+            if (success) {
+                // Notify Velocity of the ban
+                sendBanToVelocity(uuid, expiry);
+
+                log(Level.INFO, "Player " + playerName + " (" + uuid + ") has been banned until " + new java.util.Date(expiry));
+            } else {
+                log(Level.WARNING, "Failed to add ban for player " + playerName + " (" + uuid + ")");
+            }
+
+            return success;
+        } catch (Exception e) {
+            log(Level.SEVERE, "Error banning player " + uuid + ": " + e.getMessage());
+            e.printStackTrace();
+            return false;
+        }
+    }
+
+    /**
+     * Removes a ban for a player.
+     *
+     * @param uuid The UUID of the player
+     */
+    public void removeBan(UUID uuid) {
+        try {
+            boolean removed = databaseManager.removeBan(uuid);
+
+            if (removed) {
+                // Also try to notify Velocity of the ban removal
+                sendBanRemovalToVelocity(uuid);
+
+                log(Level.INFO, "Ban removed for player " + uuid);
+            } else {
+                log(Level.FINE, "Attempted to remove ban for player " + uuid + " but they weren't banned");
+            }
+        } catch (Exception e) {
+            log(Level.SEVERE, "Error removing ban for player " + uuid + ": " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * Clears all bans from the database.
+     */
+    public void clearAllBans() {
+        try {
+            databaseManager.clearAllBans();
+
+            // Notify Velocity to clear all bans
+            sendClearAllBansToVelocity();
+
+            log(Level.INFO, "All bans cleared");
+        } catch (Exception e) {
+            log(Level.SEVERE, "Error clearing all bans: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * Checks if a player is currently banned.
+     *
+     * @param uuid The UUID of the player
+     * @return true if the player is banned, false otherwise
+     */
+    public boolean isBanned(UUID uuid) {
+        try {
+            return databaseManager.isBanned(uuid);
+        } catch (Exception e) {
+            log(Level.SEVERE, "Error checking if player " + uuid + " is banned: " + e.getMessage());
+            e.printStackTrace();
+            return false;
+        }
+    }
+
+    /**
+     * Gets the time left on a player's ban in milliseconds.
+     *
+     * @param uuid The UUID of the player
+     * @return The time left in milliseconds, or 0 if the player isn't banned
+     */
+    public long getTimeLeft(UUID uuid) {
+        try {
+            return databaseManager.getTimeLeft(uuid);
+        } catch (Exception e) {
+            log(Level.SEVERE, "Error getting time left for player " + uuid + ": " + e.getMessage());
+            e.printStackTrace();
+            return 0;
+        }
+    }
+
+    /**
+     * Gets all currently banned players.
+     *
+     * @return A map of UUID to expiry time
+     */
     public Map<UUID, Long> getBannedPlayers() {
         try {
             return databaseManager.getAllBans();
@@ -402,9 +295,14 @@ public class HardcoreBanPlugin extends JavaPlugin implements Listener {
         }
     }
 
-    private void resetPlayerGameMode(Player player) {
+    /**
+     * Resets a player's gamemode after a ban expires.
+     *
+     * @param player The player to reset
+     */
+    public void resetPlayerGameMode(Player player) {
         // Get the configured gamemode to reset to
-        String gameModeStr = config.getString("reset-gamemode", "SURVIVAL").toUpperCase();
+        String gameModeStr = getConfig().getString("reset-gamemode", "SURVIVAL").toUpperCase();
         GameMode targetGameMode;
 
         try {
@@ -450,11 +348,17 @@ public class HardcoreBanPlugin extends JavaPlugin implements Listener {
         }
 
         // Send the gamemode reset message
-        String resetMessage = config.getString("messages.gamemode-reset",
+        String resetMessage = getConfig().getString("messages.gamemode-reset",
                 "<green>Your hardcore ban has expired. Your gamemode has been set to survival.");
         player.sendMessage(miniMessage.deserialize(resetMessage));
     }
 
+    /**
+     * Sends a ban message to Velocity proxy.
+     *
+     * @param uuid The UUID of the banned player
+     * @param expiry The time when the ban expires
+     */
     private void sendBanToVelocity(UUID uuid, long expiry) {
         // Try to notify Velocity, but don't worry if it fails
         if (Bukkit.getOnlinePlayers().isEmpty()) {
@@ -473,6 +377,11 @@ public class HardcoreBanPlugin extends JavaPlugin implements Listener {
         log(Level.FINE, "Notified Velocity of ban for player " + uuid);
     }
 
+    /**
+     * Sends a ban removal message to Velocity proxy.
+     *
+     * @param uuid The UUID of the player to unban
+     */
     private void sendBanRemovalToVelocity(UUID uuid) {
         // Try to notify Velocity, but don't worry if it fails
         if (Bukkit.getOnlinePlayers().isEmpty()) {
@@ -490,6 +399,9 @@ public class HardcoreBanPlugin extends JavaPlugin implements Listener {
         log(Level.FINE, "Notified Velocity of ban removal for player " + uuid);
     }
 
+    /**
+     * Sends a message to Velocity to clear all bans.
+     */
     private void sendClearAllBansToVelocity() {
         // Try to notify Velocity, but don't worry if it fails
         if (Bukkit.getOnlinePlayers().isEmpty()) {
@@ -506,57 +418,62 @@ public class HardcoreBanPlugin extends JavaPlugin implements Listener {
         log(Level.FINE, "Notified Velocity of ban clearance");
     }
 
-    // New method to format ban time based on configuration
-    public String formatBanTime(long durationMillis) {
-        String unit = config.getString("ban-duration.unit", "hours").toLowerCase();
-
-        if ("minutes".equals(unit)) {
-            long minutes = TimeUnit.MILLISECONDS.toMinutes(durationMillis);
-            return minutes + " minute" + (minutes == 1 ? "" : "s");
-        } else {
-            // Default to hours
-            long hours = TimeUnit.MILLISECONDS.toHours(durationMillis);
-            return hours + " hour" + (hours == 1 ? "" : "s");
-        }
-    }
-
-    // Updated format time method for better display
-    private String formatTime(long millis) {
-        long hours = TimeUnit.MILLISECONDS.toHours(millis);
-        millis -= TimeUnit.HOURS.toMillis(hours);
-        long minutes = TimeUnit.MILLISECONDS.toMinutes(millis);
-
-        StringBuilder time = new StringBuilder();
-
-        if (hours > 0) {
-            time.append(hours).append(" hour").append(hours == 1 ? "" : "s");
-            if (minutes > 0) {
-                time.append(", ");
-            }
-        }
-
-        if (minutes > 0 || hours == 0) {
-            time.append(minutes).append(" minute").append(minutes == 1 ? "" : "s");
-        }
-
-        return time.toString();
-    }
-
+    /**
+     * Logs a message with the specified log level.
+     * Only logs if the level is at or above the configured log level.
+     *
+     * @param level The log level
+     * @param message The message to log
+     */
     public void log(Level level, String message) {
-        Level configLevel = Level.parse(config.getString("log-level", "INFO").toUpperCase());
+        Level configLevel = Level.parse(getConfig().getString("log-level", "INFO").toUpperCase());
         if (level.intValue() >= configLevel.intValue()) {
             getLogger().log(level, message);
         }
     }
 
+    /**
+     * Checks if the database connection is active.
+     *
+     * @return true if connected, false otherwise
+     */
     public boolean checkDatabaseConnection() {
         return databaseManager.connect();
     }
 
+    /**
+     * Gets the database manager instance.
+     *
+     * @return The database manager
+     */
     public DatabaseManager getDatabaseManager() {
         return databaseManager;
     }
 
+    /**
+     * Gets the config manager instance.
+     *
+     * @return The config manager
+     */
+    public ConfigManager getConfigManager() {
+        return configManager;
+    }
+
+    /**
+     * Gets the MiniMessage instance.
+     *
+     * @return The MiniMessage instance
+     */
+    public MiniMessage getMiniMessage() {
+        return miniMessage;
+    }
+
+    /**
+     * Executes a raw SQL query. Should only be used for admin commands.
+     *
+     * @param sql The SQL query to execute
+     * @param sender The command sender who will receive the results
+     */
     public void executeRawSql(String sql, CommandSender sender) {
         try {
             databaseManager.executeRawSql(sql, sender);
