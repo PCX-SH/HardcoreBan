@@ -75,7 +75,6 @@ database:
   database: minecraft
   username: root
   password: password
-  table-prefix: ''
 
 # Logging level
 # Available levels: OFF, SEVERE, WARNING, INFO, CONFIG, FINE, FINER, FINEST, ALL
