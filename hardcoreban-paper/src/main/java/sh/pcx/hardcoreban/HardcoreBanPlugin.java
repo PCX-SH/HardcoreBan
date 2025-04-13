@@ -143,6 +143,18 @@ public class HardcoreBanPlugin extends JavaPlugin {
                 }
             }
         }.runTaskTimer(this, checkInterval, checkInterval);
+
+        // Setup database heartbeat task (every 10 minutes - 12000 ticks)
+        new BukkitRunnable() {
+            @Override
+            public void run() {
+                try {
+                    databaseManager.keepConnectionAlive();
+                } catch (Exception e) {
+                    log(Level.WARNING, "Error in database heartbeat: " + e.getMessage());
+                }
+            }
+        }.runTaskTimer(this, 12000, 12000);
     }
 
     /**

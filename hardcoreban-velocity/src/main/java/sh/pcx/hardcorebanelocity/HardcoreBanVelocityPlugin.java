@@ -182,6 +182,17 @@ public class HardcoreBanVelocityPlugin {
         server.getScheduler().buildTask(this, this::refreshBans)
                 .repeat(checkInterval, TimeUnit.SECONDS)
                 .schedule();
+
+        // Add database heartbeat task (every 10 minutes)
+        server.getScheduler().buildTask(this, () -> {
+            try {
+                if (databaseManager != null) {
+                    databaseManager.keepConnectionAlive();
+                }
+            } catch (Exception e) {
+                logger.error("Error in database heartbeat: {}", e.getMessage());
+            }
+        }).repeat(10, TimeUnit.MINUTES).schedule();
     }
 
     /**

@@ -27,6 +27,8 @@ public class DatabaseManager {
     private final String username;
     private final String password;
     private Connection connection;
+    private long lastConnectionAttempt = 0;
+    private static final long CONNECTION_RETRY_DELAY = 10000; // 10 seconds in milliseconds
 
     /**
      * Creates a new DatabaseManager instance.
@@ -54,18 +56,59 @@ public class DatabaseManager {
      * @return true if connection successful, false otherwise
      */
     public boolean connect() {
+        // Prevent connection attempts from happening too frequently
+        long currentTime = System.currentTimeMillis();
+        if (currentTime - lastConnectionAttempt < CONNECTION_RETRY_DELAY) {
+            if (connection != null) {
+                try {
+                    // Just do a quick check if we recently tried connecting
+                    if (!connection.isClosed()) {
+                        return true;
+                    }
+                } catch (SQLException e) {
+                    // Connection is invalid, continue with reconnect
+                    logger.debug("Connection invalid, will attempt reconnect");
+                }
+            }
+        }
+
+        lastConnectionAttempt = currentTime;
+
         try {
-            if (connection != null && !connection.isClosed()) {
-                return true;
+            // Check if current connection is still valid
+            if (connection != null) {
+                try {
+                    // Test if connection is valid with a 5-second timeout
+                    if (!connection.isClosed() && connection.isValid(5)) {
+                        return true;
+                    }
+                    // Connection exists but is invalid, close it
+                    try {
+                        connection.close();
+                    } catch (SQLException ignored) {
+                        // Ignore errors when closing invalid connection
+                    }
+                } catch (SQLException e) {
+                    logger.warn("Error checking connection validity: {}", e.getMessage());
+                    // Try to close the connection anyway
+                    try {
+                        connection.close();
+                    } catch (SQLException ignored) {
+                        // Ignore errors when closing invalid connection
+                    }
+                }
             }
 
             // Use the newer driver class
             Class.forName("com.mysql.cj.jdbc.Driver");
 
-            // Add connection timeout and some other useful options
+            // Add connection timeout, auto-reconnect, and test-on-borrow options
             String url = "jdbc:mysql://" + host + ":" + port + "/" + database +
                     "?useSSL=false" +
                     "&connectTimeout=5000" +
+                    "&autoReconnect=true" +
+                    "&testOnBorrow=true" +
+                    "&validationQuery=SELECT 1" +
                     "&serverTimezone=UTC";
 
             connection = DriverManager.getConnection(url, username, password);
@@ -79,6 +122,38 @@ public class DatabaseManager {
             logger.error("Failed to connect to database: {}", e.getMessage());
             connection = null; // Make sure connection is null on failure
             return false;
+        }
+    }
+
+    /**
+     * Disconnects from the database.
+     */
+    public void disconnect() {
+        try {
+            if (connection != null && !connection.isClosed()) {
+                connection.close();
+                logger.info("Disconnected from database.");
+            }
+        } catch (SQLException e) {
+            logger.warn("Error disconnecting from database: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * Keeps the database connection alive by executing a simple query.
+     * This should be called periodically to prevent timeout issues.
+     */
+    public void keepConnectionAlive() {
+        try {
+            boolean connected = connect(); // This will validate and reconnect if needed
+            if (connected) {
+                try (Statement stmt = connection.createStatement()) {
+                    stmt.execute("SELECT 1");
+                    logger.debug("Database heartbeat successful");
+                }
+            }
+        } catch (SQLException e) {
+            logger.warn("Database heartbeat failed: {}", e.getMessage());
         }
     }
 
@@ -106,20 +181,6 @@ public class DatabaseManager {
             }
         } catch (SQLException e) {
             logger.error("Failed to create database table: {}", e.getMessage());
-        }
-    }
-
-    /**
-     * Disconnects from the database.
-     */
-    public void disconnect() {
-        try {
-            if (connection != null && !connection.isClosed()) {
-                connection.close();
-                logger.info("Disconnected from database.");
-            }
-        } catch (SQLException e) {
-            logger.warn("Error disconnecting from database: {}", e.getMessage());
         }
     }
 
