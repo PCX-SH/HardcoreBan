@@ -1,9 +1,14 @@
-# HardcoreBan
+<p align="center">
+  <img src="images/BANNER.png" alt="HardcoreBan Banner" width="800">
+</p>
+
+<p align="center">
+  <a href="https://github.com/PCX-SH/HardcoreBan/actions/workflows/release.yml"><img src="https://github.com/PCX-SH/HardcoreBan/actions/workflows/release.yml/badge.svg" alt="Release Build"></a>
+  <a href="https://github.com/PCX-SH/HardcoreBan/actions/workflows/nightly.yml"><img src="https://github.com/PCX-SH/HardcoreBan/actions/workflows/nightly.yml/badge.svg" alt="Nightly Build"></a>
+  <a href="https://github.com/PCX-SH/HardcoreBan/releases"><img src="https://img.shields.io/github/v/release/PCX-SH/HardcoreBan?style=flat" alt="Latest Release"></a>
+</p>
 
 A comprehensive Minecraft plugin system for managing hardcore mode temporary bans with MySQL database integration.
-
-[![Release Build](https://github.com/PCX-SH/HardcoreBan/actions/workflows/release.yml/badge.svg)](https://github.com/PCX-SH/HardcoreBan/actions/workflows/release.yml)
-[![Nightly Build](https://github.com/PCX-SH/HardcoreBan/actions/workflows/nightly.yml/badge.svg)](https://github.com/PCX-SH/HardcoreBan/actions/workflows/nightly.yml)
 
 ## Features
 

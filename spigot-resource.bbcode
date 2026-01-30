@@ -1,0 +1,94 @@
+[CENTER]
+[IMG]https://raw.githubusercontent.com/PCX-SH/HardcoreBan/main/images/BANNER.png[/IMG]
+
+[SIZE=4]Temporary Death Bans for Hardcore Mode[/SIZE]
+
+[IMG]https://img.shields.io/github/v/release/PCX-SH/HardcoreBan?style=flat-square[/IMG]
+[/CENTER]
+
+[SIZE=5][B]Overview[/B][/SIZE]
+HardcoreBan is a comprehensive plugin system that adds temporary bans when players die in hardcore mode. Instead of permanent death, players are banned for a configurable duration and can return once their ban expires.
+
+[SIZE=5][B]Features[/B][/SIZE]
+[LIST]
+[*][B]Temporary Bans[/B] - Automatically ban players for a configurable duration when they die
+[*][B]Velocity Support[/B] - Prevent banned players from connecting at the proxy level
+[*][B]MySQL Storage[/B] - Reliable database storage with HikariCP connection pooling
+[*][B]Spectator Mode[/B] - Let players see their death location before being kicked
+[*][B]Gamemode Reset[/B] - Automatically restore survival mode when bans expire
+[*][B]MiniMessage Support[/B] - Fully customizable messages with colors and formatting
+[*][B]Bypass Permission[/B] - Allow certain players to be exempt from death bans
+[/LIST]
+
+[SIZE=5][B]Requirements[/B][/SIZE]
+[LIST]
+[*]Java 21+
+[*]Paper 1.21.4+
+[*]Velocity 3.4.0+ (optional)
+[*]MySQL or MariaDB
+[/LIST]
+
+[SIZE=5][B]Commands[/B][/SIZE]
+[CODE]
+/hardcoreban check <player> - Check if a player is banned
+/hardcoreban list           - List all banned players
+/hardcoreban reset <player> - Remove a player's ban
+/hardcoreban clearall       - Remove all bans
+/hardcoreban debug          - Test database connection
+[/CODE]
+
+[SIZE=5][B]Permissions[/B][/SIZE]
+[CODE]
+hardcoreban.admin   - Access to all commands (default: op)
+hardcoreban.bypass  - Exempt from death bans
+hardcoreban.check   - Check ban status
+hardcoreban.list    - List bans
+hardcoreban.reset   - Remove bans
+[/CODE]
+
+[SIZE=5][B]Configuration[/B][/SIZE]
+[CODE]
+ban-duration:
+  amount: 24
+  unit: "hours"
+
+hardcore-world: "world"
+set-spectator-on-death: true
+kick-delay-ticks: 60
+
+database:
+  host: localhost
+  port: 3306
+  database: minecraft
+  username: root
+  password: password
+[/CODE]
+
+[SIZE=5][B]How It Works[/B][/SIZE]
+[LIST=1]
+[*]Player dies in the configured hardcore world
+[*]Plugin records the ban in MySQL database
+[*]Player enters spectator mode briefly (configurable)
+[*]Player is kicked with a ban message
+[*]Velocity blocks reconnection attempts to the hardcore server
+[*]When ban expires, player can rejoin with survival mode restored
+[/LIST]
+
+[SIZE=5][B]Installation[/B][/SIZE]
+[LIST=1]
+[*]Download both JAR files from the releases
+[*]Place Paper JAR in your server's plugins folder
+[*]Place Velocity JAR in your proxy's plugins folder (if using Velocity)
+[*]Configure database settings in both config files
+[*]Restart your servers
+[/LIST]
+
+[SIZE=5][B]Links[/B][/SIZE]
+[LIST]
+[*][URL='https://github.com/PCX-SH/HardcoreBan']GitHub Repository[/URL]
+[*][URL='https://github.com/PCX-SH/HardcoreBan/releases']Downloads[/URL]
+[*][URL='https://github.com/PCX-SH/HardcoreBan/issues']Issue Tracker[/URL]
+[/LIST]
+
+[SIZE=5][B]Support[/B][/SIZE]
+If you encounter any issues or have feature requests, please open an issue on GitHub.
