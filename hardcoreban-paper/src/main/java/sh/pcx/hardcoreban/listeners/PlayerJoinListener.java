@@ -3,6 +3,7 @@ package sh.pcx.hardcoreban.listeners;
 import org.bukkit.GameMode;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
+import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.scheduler.BukkitRunnable;
@@ -33,10 +34,11 @@ public class PlayerJoinListener implements Listener {
 
     /**
      * Handles player join events. Enforces bans and resets player gamemodes as needed.
+     * Uses HIGHEST priority to run early for ban enforcement.
      *
      * @param event The player join event
      */
-    @EventHandler
+    @EventHandler(priority = EventPriority.HIGHEST)
     public void onPlayerJoin(PlayerJoinEvent event) {
         Player player = event.getPlayer();
         UUID uuid = player.getUniqueId();

@@ -1,5 +1,6 @@
 package sh.pcx.hardcorebanelocity.listeners;
 
+import com.velocitypowered.api.event.PostOrder;
 import com.velocitypowered.api.event.Subscribe;
 import com.velocitypowered.api.event.player.ServerPreConnectEvent;
 import com.velocitypowered.api.proxy.Player;
@@ -42,10 +43,11 @@ public class ServerConnectListener {
 
     /**
      * Handles server pre-connect events. Prevents banned players from connecting to the hardcore server.
+     * Uses FIRST order to run early for ban enforcement.
      *
      * @param event The server pre-connect event
      */
-    @Subscribe
+    @Subscribe(order = PostOrder.FIRST)
     public void onServerPreConnect(ServerPreConnectEvent event) {
         Player player = event.getPlayer();
         UUID uuid = player.getUniqueId();

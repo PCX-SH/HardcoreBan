@@ -3,6 +3,7 @@ package sh.pcx.hardcoreban.listeners;
 import org.bukkit.GameMode;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
+import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerRespawnEvent;
 import org.bukkit.scheduler.BukkitRunnable;
@@ -31,10 +32,11 @@ public class PlayerRespawnListener implements Listener {
 
     /**
      * Handles player respawn events. Ensures banned players in spectator mode are properly kicked.
+     * Uses HIGH priority for respawn handling.
      *
      * @param event The player respawn event
      */
-    @EventHandler
+    @EventHandler(priority = EventPriority.HIGH)
     public void onPlayerRespawn(PlayerRespawnEvent event) {
         Player player = event.getPlayer();
 

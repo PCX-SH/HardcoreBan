@@ -1,5 +1,7 @@
 package sh.pcx.hardcoreban.database;
 
+import com.zaxxer.hikari.HikariConfig;
+import com.zaxxer.hikari.HikariDataSource;
 import org.bukkit.command.CommandSender;
 import sh.pcx.hardcoreban.HardcoreBanPlugin;
 import sh.pcx.hardcoreban.model.Ban;
@@ -13,7 +15,7 @@ import java.util.logging.Level;
 
 /**
  * Manages database operations for the HardcoreBan plugin.
- * Handles connections, ban storage and retrieval.
+ * Handles connections via HikariCP connection pool, ban storage and retrieval.
  */
 public class DatabaseManager {
     private final HardcoreBanPlugin plugin;
@@ -22,9 +24,7 @@ public class DatabaseManager {
     private final String database;
     private final String username;
     private final String password;
-    private Connection connection;
-    private long lastConnectionAttempt = 0;
-    private static final long CONNECTION_RETRY_DELAY = 10000; // 10 seconds in milliseconds
+    private HikariDataSource dataSource;
 
     /**
      * Creates a new DatabaseManager instance.
@@ -46,113 +46,50 @@ public class DatabaseManager {
     }
 
     /**
-     * Connects to the database.
+     * Connects to the database using HikariCP connection pool.
      *
      * @return true if connection successful, false otherwise
      */
     public boolean connect() {
-        // Prevent connection attempts from happening too frequently
-        long currentTime = System.currentTimeMillis();
-        if (currentTime - lastConnectionAttempt < CONNECTION_RETRY_DELAY) {
-            if (connection != null) {
-                try {
-                    // Just do a quick check if we recently tried connecting
-                    if (!connection.isClosed()) {
-                        return true;
-                    }
-                } catch (SQLException e) {
-                    // Connection is invalid, continue with reconnect
-                    plugin.log(Level.FINE, "Connection invalid, will attempt reconnect");
-                }
-            }
+        if (dataSource != null && !dataSource.isClosed()) {
+            return true;
         }
 
-        lastConnectionAttempt = currentTime;
-
         try {
-            // Check if current connection is still valid
-            if (connection != null) {
-                try {
-                    // Test if connection is valid with a 5-second timeout
-                    if (!connection.isClosed() && connection.isValid(5)) {
-                        return true;
-                    }
-                    // Connection exists but is invalid, close it
-                    try {
-                        connection.close();
-                    } catch (SQLException ignored) {
-                        // Ignore errors when closing invalid connection
-                    }
-                } catch (SQLException e) {
-                    plugin.log(Level.WARNING, "Error checking connection validity: " + e.getMessage());
-                    // Try to close the connection anyway
-                    try {
-                        connection.close();
-                    } catch (SQLException ignored) {
-                        // Ignore errors when closing invalid connection
-                    }
-                }
-            }
+            HikariConfig config = new HikariConfig();
+            config.setJdbcUrl("jdbc:mysql://" + host + ":" + port + "/" + database +
+                    "?useSSL=false&serverTimezone=UTC");
+            config.setUsername(username);
+            config.setPassword(password);
+            config.setPoolName("HardcoreBan-Pool");
+            config.setMaximumPoolSize(10);
+            config.setMinimumIdle(2);
+            config.setIdleTimeout(300000);
+            config.setConnectionTimeout(10000);
+            config.setMaxLifetime(1800000);
+            config.setConnectionTestQuery("SELECT 1");
 
-            // Use the newer driver class
-            Class.forName("com.mysql.cj.jdbc.Driver");
-
-            // Add connection timeout, auto-reconnect, and test-on-borrow options
-            String url = "jdbc:mysql://" + host + ":" + port + "/" + database +
-                    "?useSSL=false" +
-                    "&connectTimeout=5000" +
-                    "&autoReconnect=true" +
-                    "&testOnBorrow=true" +
-                    "&validationQuery=SELECT 1" +
-                    "&serverTimezone=UTC";
-
-            connection = DriverManager.getConnection(url, username, password);
+            dataSource = new HikariDataSource(config);
 
             // Create the table if it doesn't exist
             createTablesIfNotExist();
 
-            plugin.log(Level.INFO, "Connected to database successfully.");
+            plugin.log(Level.INFO, "Connected to database successfully using HikariCP.");
             return true;
-        } catch (SQLException e) {
+        } catch (Exception e) {
             plugin.log(Level.SEVERE, "Failed to connect to database: " + e.getMessage());
-            connection = null; // Make sure connection is null on failure
-            return false;
-        } catch (ClassNotFoundException e) {
-            plugin.log(Level.SEVERE, "MySQL driver not found: " + e.getMessage());
-            connection = null;
+            dataSource = null;
             return false;
         }
     }
 
     /**
-     * Disconnects from the database.
+     * Disconnects from the database by closing the HikariCP pool.
      */
     public void disconnect() {
-        try {
-            if (connection != null && !connection.isClosed()) {
-                connection.close();
-                plugin.log(Level.INFO, "Disconnected from database.");
-            }
-        } catch (SQLException e) {
-            plugin.log(Level.WARNING, "Error disconnecting from database: " + e.getMessage());
-        }
-    }
-
-    /**
-     * Keeps the database connection alive by executing a simple query.
-     * This should be called periodically to prevent timeout issues.
-     */
-    public void keepConnectionAlive() {
-        try {
-            boolean connected = connect(); // This will validate and reconnect if needed
-            if (connected) {
-                try (Statement stmt = connection.createStatement()) {
-                    stmt.execute("SELECT 1");
-                    plugin.log(Level.FINE, "Database heartbeat successful");
-                }
-            }
-        } catch (SQLException e) {
-            plugin.log(Level.WARNING, "Database heartbeat failed: " + e.getMessage());
+        if (dataSource != null && !dataSource.isClosed()) {
+            dataSource.close();
+            plugin.log(Level.INFO, "Disconnected from database.");
         }
     }
 
@@ -160,24 +97,24 @@ public class DatabaseManager {
      * Creates the required database tables if they don't exist.
      */
     private void createTablesIfNotExist() {
-        try {
-            if (connection == null || connection.isClosed()) {
-                plugin.log(Level.SEVERE, "Cannot create table: database connection is closed or null");
-                return;
-            }
+        if (dataSource == null || dataSource.isClosed()) {
+            plugin.log(Level.SEVERE, "Cannot create table: database connection pool is closed or null");
+            return;
+        }
 
-            try (Statement stmt = connection.createStatement()) {
-                String sql = "CREATE TABLE IF NOT EXISTS hardcoreban_bans (" +
-                        "uuid VARCHAR(36) PRIMARY KEY, " +
-                        "player_name VARCHAR(36), " +
-                        "expiry BIGINT, " +
-                        "banned_by VARCHAR(36), " +
-                        "banned_at BIGINT, " +
-                        "reason VARCHAR(255)" +
-                        ");";
-                stmt.execute(sql);
-                plugin.log(Level.INFO, "Verified that database table exists");
-            }
+        String sql = "CREATE TABLE IF NOT EXISTS hardcoreban_bans (" +
+                "uuid VARCHAR(36) PRIMARY KEY, " +
+                "player_name VARCHAR(36), " +
+                "expiry BIGINT, " +
+                "banned_by VARCHAR(36), " +
+                "banned_at BIGINT, " +
+                "reason VARCHAR(255)" +
+                ");";
+
+        try (Connection conn = dataSource.getConnection();
+             Statement stmt = conn.createStatement()) {
+            stmt.execute(sql);
+            plugin.log(Level.INFO, "Verified that database table exists");
         } catch (SQLException e) {
             plugin.log(Level.SEVERE, "Failed to create database table: " + e.getMessage());
         }
@@ -208,41 +145,34 @@ public class DatabaseManager {
      * @return true if the ban was added successfully, false otherwise
      */
     public boolean addBan(UUID uuid, String playerName, long expiry, String bannedBy, long bannedAt, String reason) {
-        try {
-            boolean connected = connect();
-            if (!connected) {
-                plugin.log(Level.WARNING, "Failed to connect to database when adding ban");
-                return false;
-            }
+        if (dataSource == null || dataSource.isClosed()) {
+            plugin.log(Level.WARNING, "Database connection pool is not available");
+            return false;
+        }
 
-            if (connection == null) {
-                plugin.log(Level.WARNING, "Database connection is null");
-                return false;
-            }
+        String sql = "INSERT INTO hardcoreban_bans (uuid, player_name, expiry, banned_by, banned_at, reason) " +
+                "VALUES (?, ?, ?, ?, ?, ?) " +
+                "ON DUPLICATE KEY UPDATE " +
+                "player_name = ?, expiry = ?, banned_by = ?, banned_at = ?, reason = ?";
 
-            String sql = "INSERT INTO hardcoreban_bans (uuid, player_name, expiry, banned_by, banned_at, reason) " +
-                    "VALUES (?, ?, ?, ?, ?, ?) " +
-                    "ON DUPLICATE KEY UPDATE " +
-                    "player_name = ?, expiry = ?, banned_by = ?, banned_at = ?, reason = ?";
+        try (Connection conn = dataSource.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, uuid.toString());
+            stmt.setString(2, playerName);
+            stmt.setLong(3, expiry);
+            stmt.setString(4, bannedBy);
+            stmt.setLong(5, bannedAt);
+            stmt.setString(6, reason);
 
-            try (PreparedStatement stmt = connection.prepareStatement(sql)) {
-                stmt.setString(1, uuid.toString());
-                stmt.setString(2, playerName);
-                stmt.setLong(3, expiry);
-                stmt.setString(4, bannedBy);
-                stmt.setLong(5, bannedAt);
-                stmt.setString(6, reason);
+            // For ON DUPLICATE KEY UPDATE
+            stmt.setString(7, playerName);
+            stmt.setLong(8, expiry);
+            stmt.setString(9, bannedBy);
+            stmt.setLong(10, bannedAt);
+            stmt.setString(11, reason);
 
-                // For ON DUPLICATE KEY UPDATE
-                stmt.setString(7, playerName);
-                stmt.setLong(8, expiry);
-                stmt.setString(9, bannedBy);
-                stmt.setLong(10, bannedAt);
-                stmt.setString(11, reason);
-
-                stmt.executeUpdate();
-                return true;
-            }
+            stmt.executeUpdate();
+            return true;
         } catch (SQLException e) {
             plugin.log(Level.SEVERE, "Failed to add ban: " + e.getMessage());
             return false;
@@ -273,26 +203,18 @@ public class DatabaseManager {
      * @return true if a ban was removed, false if the player wasn't banned or an error occurred
      */
     public boolean removeBan(UUID uuid) {
-        try {
-            boolean connected = connect();
-            if (!connected) {
-                plugin.log(Level.WARNING, "Failed to connect to database when removing ban");
-                return false;
-            }
+        if (dataSource == null || dataSource.isClosed()) {
+            plugin.log(Level.WARNING, "Database connection pool is not available");
+            return false;
+        }
 
-            if (connection == null) {
-                plugin.log(Level.WARNING, "Database connection is null");
-                return false;
-            }
+        String sql = "DELETE FROM hardcoreban_bans WHERE uuid = ?";
 
-            String sql = "DELETE FROM hardcoreban_bans WHERE uuid = ?";
-
-            try (PreparedStatement stmt = connection.prepareStatement(sql)) {
-                stmt.setString(1, uuid.toString());
-
-                int rowsAffected = stmt.executeUpdate();
-                return rowsAffected > 0;
-            }
+        try (Connection conn = dataSource.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, uuid.toString());
+            int rowsAffected = stmt.executeUpdate();
+            return rowsAffected > 0;
         } catch (SQLException e) {
             plugin.log(Level.SEVERE, "Failed to remove ban: " + e.getMessage());
             return false;
@@ -303,24 +225,17 @@ public class DatabaseManager {
      * Clears all bans from the database.
      */
     public void clearAllBans() {
-        try {
-            boolean connected = connect();
-            if (!connected) {
-                plugin.log(Level.WARNING, "Failed to connect to database when clearing bans");
-                return;
-            }
+        if (dataSource == null || dataSource.isClosed()) {
+            plugin.log(Level.WARNING, "Database connection pool is not available");
+            return;
+        }
 
-            if (connection == null) {
-                plugin.log(Level.WARNING, "Database connection is null");
-                return;
-            }
+        String sql = "DELETE FROM hardcoreban_bans";
 
-            String sql = "DELETE FROM hardcoreban_bans";
-
-            try (Statement stmt = connection.createStatement()) {
-                int rowsAffected = stmt.executeUpdate(sql);
-                plugin.log(Level.INFO, "Cleared " + rowsAffected + " bans from the database");
-            }
+        try (Connection conn = dataSource.getConnection();
+             Statement stmt = conn.createStatement()) {
+            int rowsAffected = stmt.executeUpdate(sql);
+            plugin.log(Level.INFO, "Cleared " + rowsAffected + " bans from the database");
         } catch (SQLException e) {
             plugin.log(Level.SEVERE, "Failed to clear all bans: " + e.getMessage());
         }
@@ -333,30 +248,23 @@ public class DatabaseManager {
      * @return true if the player is banned, false otherwise
      */
     public boolean isBanned(UUID uuid) {
-        try {
-            boolean connected = connect();
-            if (!connected) {
-                plugin.log(Level.WARNING, "Failed to connect to database when checking ban status");
-                return false;
-            }
+        if (dataSource == null || dataSource.isClosed()) {
+            plugin.log(Level.WARNING, "Database connection pool is not available");
+            return false;
+        }
 
-            if (connection == null) {
-                plugin.log(Level.WARNING, "Database connection is null");
-                return false;
-            }
+        String sql = "SELECT expiry FROM hardcoreban_bans WHERE uuid = ?";
 
-            String sql = "SELECT expiry FROM hardcoreban_bans WHERE uuid = ?";
+        try (Connection conn = dataSource.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, uuid.toString());
 
-            try (PreparedStatement stmt = connection.prepareStatement(sql)) {
-                stmt.setString(1, uuid.toString());
-
-                try (ResultSet rs = stmt.executeQuery()) {
-                    if (rs.next()) {
-                        long expiry = rs.getLong("expiry");
-                        return expiry > System.currentTimeMillis();
-                    }
-                    return false;
+            try (ResultSet rs = stmt.executeQuery()) {
+                if (rs.next()) {
+                    long expiry = rs.getLong("expiry");
+                    return expiry > System.currentTimeMillis();
                 }
+                return false;
             }
         } catch (SQLException e) {
             plugin.log(Level.SEVERE, "Failed to check if player is banned: " + e.getMessage());
@@ -371,31 +279,24 @@ public class DatabaseManager {
      * @return The time left in milliseconds, or 0 if the player isn't banned
      */
     public long getTimeLeft(UUID uuid) {
-        try {
-            boolean connected = connect();
-            if (!connected) {
-                plugin.log(Level.WARNING, "Failed to connect to database when getting ban time left");
-                return 0;
-            }
+        if (dataSource == null || dataSource.isClosed()) {
+            plugin.log(Level.WARNING, "Database connection pool is not available");
+            return 0;
+        }
 
-            if (connection == null) {
-                plugin.log(Level.WARNING, "Database connection is null");
-                return 0;
-            }
+        String sql = "SELECT expiry FROM hardcoreban_bans WHERE uuid = ?";
 
-            String sql = "SELECT expiry FROM hardcoreban_bans WHERE uuid = ?";
+        try (Connection conn = dataSource.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, uuid.toString());
 
-            try (PreparedStatement stmt = connection.prepareStatement(sql)) {
-                stmt.setString(1, uuid.toString());
-
-                try (ResultSet rs = stmt.executeQuery()) {
-                    if (rs.next()) {
-                        long expiry = rs.getLong("expiry");
-                        long now = System.currentTimeMillis();
-                        return Math.max(0, expiry - now);
-                    }
-                    return 0;
+            try (ResultSet rs = stmt.executeQuery()) {
+                if (rs.next()) {
+                    long expiry = rs.getLong("expiry");
+                    long now = System.currentTimeMillis();
+                    return Math.max(0, expiry - now);
                 }
+                return 0;
             }
         } catch (SQLException e) {
             plugin.log(Level.SEVERE, "Failed to get ban time left: " + e.getMessage());
@@ -410,38 +311,31 @@ public class DatabaseManager {
      * @return A Ban object, or null if the player isn't banned
      */
     public Ban getBan(UUID uuid) {
-        try {
-            boolean connected = connect();
-            if (!connected) {
-                plugin.log(Level.WARNING, "Failed to connect to database when getting ban");
-                return null;
-            }
+        if (dataSource == null || dataSource.isClosed()) {
+            plugin.log(Level.WARNING, "Database connection pool is not available");
+            return null;
+        }
 
-            if (connection == null) {
-                plugin.log(Level.WARNING, "Database connection is null");
-                return null;
-            }
+        String sql = "SELECT player_name, expiry, banned_by, banned_at, reason FROM hardcoreban_bans WHERE uuid = ?";
 
-            String sql = "SELECT player_name, expiry, banned_by, banned_at, reason FROM hardcoreban_bans WHERE uuid = ?";
+        try (Connection conn = dataSource.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, uuid.toString());
 
-            try (PreparedStatement stmt = connection.prepareStatement(sql)) {
-                stmt.setString(1, uuid.toString());
+            try (ResultSet rs = stmt.executeQuery()) {
+                if (rs.next()) {
+                    String playerName = rs.getString("player_name");
+                    long expiry = rs.getLong("expiry");
+                    String bannedBy = rs.getString("banned_by");
+                    long bannedAt = rs.getLong("banned_at");
+                    String reason = rs.getString("reason");
 
-                try (ResultSet rs = stmt.executeQuery()) {
-                    if (rs.next()) {
-                        String playerName = rs.getString("player_name");
-                        long expiry = rs.getLong("expiry");
-                        String bannedBy = rs.getString("banned_by");
-                        long bannedAt = rs.getLong("banned_at");
-                        String reason = rs.getString("reason");
-
-                        // Only return if ban is still active
-                        if (expiry > System.currentTimeMillis()) {
-                            return new Ban(uuid, playerName, expiry, bannedBy, bannedAt, reason);
-                        }
+                    // Only return if ban is still active
+                    if (expiry > System.currentTimeMillis()) {
+                        return new Ban(uuid, playerName, expiry, bannedBy, bannedAt, reason);
                     }
-                    return null;
                 }
+                return null;
             }
         } catch (SQLException e) {
             plugin.log(Level.SEVERE, "Failed to get ban for player: " + e.getMessage());
@@ -457,31 +351,23 @@ public class DatabaseManager {
     public Map<UUID, Long> getAllBans() {
         Map<UUID, Long> bans = new HashMap<>();
 
-        try {
-            boolean connected = connect();
-            if (!connected) {
-                plugin.log(Level.WARNING, "Failed to connect to database when getting all bans");
-                return bans;
-            }
+        if (dataSource == null || dataSource.isClosed()) {
+            plugin.log(Level.WARNING, "Database connection pool is not available");
+            return bans;
+        }
 
-            if (connection == null) {
-                plugin.log(Level.WARNING, "Database connection is null");
-                return bans;
-            }
+        String sql = "SELECT uuid, expiry FROM hardcoreban_bans";
 
-            String sql = "SELECT uuid, expiry FROM hardcoreban_bans";
+        try (Connection conn = dataSource.getConnection();
+             Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery(sql)) {
+            while (rs.next()) {
+                UUID uuid = UUID.fromString(rs.getString("uuid"));
+                long expiry = rs.getLong("expiry");
 
-            try (Statement stmt = connection.createStatement()) {
-                try (ResultSet rs = stmt.executeQuery(sql)) {
-                    while (rs.next()) {
-                        UUID uuid = UUID.fromString(rs.getString("uuid"));
-                        long expiry = rs.getLong("expiry");
-
-                        // Only include non-expired bans
-                        if (expiry > System.currentTimeMillis()) {
-                            bans.put(uuid, expiry);
-                        }
-                    }
+                // Only include non-expired bans
+                if (expiry > System.currentTimeMillis()) {
+                    bans.put(uuid, expiry);
                 }
             }
         } catch (SQLException e) {
@@ -499,38 +385,30 @@ public class DatabaseManager {
     public Map<UUID, Ban> getAllBanDetails() {
         Map<UUID, Ban> bans = new HashMap<>();
 
-        try {
-            boolean connected = connect();
-            if (!connected) {
-                plugin.log(Level.WARNING, "Failed to connect to database when getting all ban details");
-                return bans;
-            }
+        if (dataSource == null || dataSource.isClosed()) {
+            plugin.log(Level.WARNING, "Database connection pool is not available");
+            return bans;
+        }
 
-            if (connection == null) {
-                plugin.log(Level.WARNING, "Database connection is null");
-                return bans;
-            }
+        String sql = "SELECT uuid, player_name, expiry, banned_by, banned_at, reason FROM hardcoreban_bans";
 
-            String sql = "SELECT uuid, player_name, expiry, banned_by, banned_at, reason FROM hardcoreban_bans";
+        try (Connection conn = dataSource.getConnection();
+             Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery(sql)) {
+            long now = System.currentTimeMillis();
 
-            try (Statement stmt = connection.createStatement()) {
-                try (ResultSet rs = stmt.executeQuery(sql)) {
-                    long now = System.currentTimeMillis();
+            while (rs.next()) {
+                UUID uuid = UUID.fromString(rs.getString("uuid"));
+                String playerName = rs.getString("player_name");
+                long expiry = rs.getLong("expiry");
+                String bannedBy = rs.getString("banned_by");
+                long bannedAt = rs.getLong("banned_at");
+                String reason = rs.getString("reason");
 
-                    while (rs.next()) {
-                        UUID uuid = UUID.fromString(rs.getString("uuid"));
-                        String playerName = rs.getString("player_name");
-                        long expiry = rs.getLong("expiry");
-                        String bannedBy = rs.getString("banned_by");
-                        long bannedAt = rs.getLong("banned_at");
-                        String reason = rs.getString("reason");
-
-                        // Only include non-expired bans
-                        if (expiry > now) {
-                            Ban ban = new Ban(uuid, playerName, expiry, bannedBy, bannedAt, reason);
-                            bans.put(uuid, ban);
-                        }
-                    }
+                // Only include non-expired bans
+                if (expiry > now) {
+                    Ban ban = new Ban(uuid, playerName, expiry, bannedBy, bannedAt, reason);
+                    bans.put(uuid, ban);
                 }
             }
         } catch (SQLException e) {
@@ -544,27 +422,20 @@ public class DatabaseManager {
      * Removes expired bans from the database.
      */
     public void cleanupExpiredBans() {
-        try {
-            boolean connected = connect();
-            if (!connected) {
-                plugin.log(Level.WARNING, "Failed to connect to database when cleaning up expired bans");
-                return;
-            }
+        if (dataSource == null || dataSource.isClosed()) {
+            plugin.log(Level.WARNING, "Database connection pool is not available");
+            return;
+        }
 
-            if (connection == null) {
-                plugin.log(Level.WARNING, "Database connection is null");
-                return;
-            }
+        String sql = "DELETE FROM hardcoreban_bans WHERE expiry <= ?";
 
-            String sql = "DELETE FROM hardcoreban_bans WHERE expiry <= ?";
+        try (Connection conn = dataSource.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setLong(1, System.currentTimeMillis());
 
-            try (PreparedStatement stmt = connection.prepareStatement(sql)) {
-                stmt.setLong(1, System.currentTimeMillis());
-
-                int rowsAffected = stmt.executeUpdate();
-                if (rowsAffected > 0) {
-                    plugin.log(Level.INFO, "Cleaned up " + rowsAffected + " expired bans.");
-                }
+            int rowsAffected = stmt.executeUpdate();
+            if (rowsAffected > 0) {
+                plugin.log(Level.INFO, "Cleaned up " + rowsAffected + " expired bans.");
             }
         } catch (SQLException e) {
             plugin.log(Level.SEVERE, "Failed to clean up expired bans: " + e.getMessage());
@@ -579,11 +450,12 @@ public class DatabaseManager {
      * @throws SQLException If an SQL error occurs
      */
     public void executeRawSql(String sql, CommandSender sender) throws SQLException {
-        if (!connect()) {
-            throw new SQLException("Could not connect to database");
+        if (dataSource == null || dataSource.isClosed()) {
+            throw new SQLException("Database connection pool is not available");
         }
 
-        try (Statement stmt = connection.createStatement()) {
+        try (Connection conn = dataSource.getConnection();
+             Statement stmt = conn.createStatement()) {
             boolean isQuery = sql.trim().toLowerCase().startsWith("select");
 
             if (isQuery) {

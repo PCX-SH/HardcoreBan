@@ -3,6 +3,7 @@ package sh.pcx.hardcoreban.listeners;
 import org.bukkit.GameMode;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
+import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.scheduler.BukkitRunnable;
@@ -34,10 +35,11 @@ public class PlayerDeathListener implements Listener {
 
     /**
      * Handles player death events - bans players who die in hardcore mode.
+     * Uses MONITOR priority to run last and only if not cancelled by other plugins.
      *
      * @param event The player death event
      */
-    @EventHandler
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onPlayerDeath(PlayerDeathEvent event) {
         Player player = event.getPlayer();
 
