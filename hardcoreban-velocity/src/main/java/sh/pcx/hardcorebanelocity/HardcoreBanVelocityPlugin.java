@@ -39,7 +39,7 @@ import java.util.concurrent.TimeUnit;
 @Plugin(
         id = "hardcoreban-velocity",
         name = "HardcoreBan-Velocity",
-        version = "1.0.0",
+        version = "1.1.0",
         description = "Prevents banned players from joining the hardcore server",
         authors = {"Reset64"}
 )
