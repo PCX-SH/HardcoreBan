@@ -10,10 +10,8 @@ import org.bukkit.scheduler.BukkitRunnable;
 
 import net.kyori.adventure.text.minimessage.MiniMessage;
 import sh.pcx.hardcoreban.HardcoreBanBootstrap;
-import sh.pcx.hardcoreban.model.Ban;
 import sh.pcx.hardcoreban.util.TimeFormatter;
 
-import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 
 /**

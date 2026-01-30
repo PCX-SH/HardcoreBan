@@ -10,7 +10,6 @@ import org.bukkit.scheduler.BukkitRunnable;
 import com.google.common.io.ByteArrayDataOutput;
 import com.google.common.io.ByteStreams;
 
-import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 
 import sh.pcx.hardcoreban.commands.HardcoreBanCommand;
@@ -20,9 +19,7 @@ import sh.pcx.hardcoreban.listeners.PlayerJoinListener;
 import sh.pcx.hardcoreban.listeners.PlayerRespawnListener;
 import sh.pcx.hardcoreban.loader.LoaderBootstrap;
 import sh.pcx.hardcoreban.messaging.VelocityMessageListener;
-import sh.pcx.hardcoreban.model.Ban;
 import sh.pcx.hardcoreban.util.ConfigManager;
-import sh.pcx.hardcoreban.util.TimeFormatter;
 
 import java.util.HashMap;
 import java.util.Map;
