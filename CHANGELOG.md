@@ -5,6 +5,23 @@ All notable changes to HardcoreBan will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.1] - 2026-01-30
+
+### Added
+- **Spigot support** - Plugin now works on Spigot servers (not just Paper)
+- Runtime dependency loading - Downloads HikariCP, MySQL Connector, and SLF4J on-demand
+- Isolated classloader to prevent dependency conflicts with other plugins
+
+### Changed
+- Updated Paper API from 1.21.4 to 1.21.5 (supports 1.21.5+)
+- Paper plugin JAR reduced from ~3MB to ~51KB (dependencies downloaded at runtime)
+- Refactored plugin architecture to use bootstrap pattern for compatibility
+
+### Technical
+- New loader package (`sh.pcx.hardcoreban.loader`) handles dependency management
+- SHA-256 checksum verification for all downloaded dependencies
+- Dependencies cached in `plugins/HardcoreBan-Paper/libraries/`
+
 ## [1.1.0] - 2026-01-30
 
 ### Added

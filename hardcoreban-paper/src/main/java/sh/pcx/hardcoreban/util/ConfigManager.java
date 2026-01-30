@@ -2,7 +2,8 @@ package sh.pcx.hardcoreban.util;
 
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.configuration.file.YamlConfiguration;
-import sh.pcx.hardcoreban.HardcoreBanPlugin;
+import org.bukkit.plugin.java.JavaPlugin;
+import sh.pcx.hardcoreban.HardcoreBanBootstrap;
 
 import java.io.File;
 import java.io.IOException;
@@ -12,7 +13,8 @@ import java.util.logging.Level;
  * Manages the plugin configuration, handling loading, saving, and accessing configuration values.
  */
 public class ConfigManager {
-    private final HardcoreBanPlugin plugin;
+    private final JavaPlugin plugin;
+    private final HardcoreBanBootstrap bootstrap;
     private FileConfiguration config;
     private File configFile;
 
@@ -21,8 +23,20 @@ public class ConfigManager {
      *
      * @param plugin The main plugin instance
      */
-    public ConfigManager(HardcoreBanPlugin plugin) {
+    public ConfigManager(JavaPlugin plugin) {
         this.plugin = plugin;
+        this.bootstrap = null;
+        loadConfig();
+    }
+
+    /**
+     * Creates a new ConfigManager instance from bootstrap.
+     *
+     * @param bootstrap The bootstrap instance
+     */
+    public ConfigManager(HardcoreBanBootstrap bootstrap) {
+        this.bootstrap = bootstrap;
+        this.plugin = bootstrap.getPlugin();
         loadConfig();
     }
 
@@ -40,7 +54,15 @@ public class ConfigManager {
         // Store reference to the file
         configFile = new File(plugin.getDataFolder(), "config.yml");
 
-        plugin.log(Level.INFO, "Configuration loaded.");
+        log(Level.INFO, "Configuration loaded.");
+    }
+
+    private void log(Level level, String message) {
+        if (bootstrap != null) {
+            bootstrap.log(level, message);
+        } else {
+            plugin.getLogger().log(level, message);
+        }
     }
 
     /**
@@ -49,9 +71,9 @@ public class ConfigManager {
     public void saveConfig() {
         try {
             config.save(configFile);
-            plugin.log(Level.INFO, "Configuration saved.");
+            log(Level.INFO, "Configuration saved.");
         } catch (IOException e) {
-            plugin.log(Level.SEVERE, "Could not save config to " + configFile + ": " + e.getMessage());
+            log(Level.SEVERE, "Could not save config to " + configFile + ": " + e.getMessage());
         }
     }
 
@@ -61,7 +83,7 @@ public class ConfigManager {
     public void reloadConfig() {
         plugin.reloadConfig();
         config = plugin.getConfig();
-        plugin.log(Level.INFO, "Configuration reloaded.");
+        log(Level.INFO, "Configuration reloaded.");
     }
 
     /**

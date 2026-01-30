@@ -3,7 +3,7 @@ package sh.pcx.hardcoreban.database;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import org.bukkit.command.CommandSender;
-import sh.pcx.hardcoreban.HardcoreBanPlugin;
+import sh.pcx.hardcoreban.HardcoreBanBootstrap;
 import sh.pcx.hardcoreban.model.Ban;
 import sh.pcx.hardcoreban.util.ConfigManager;
 
@@ -18,7 +18,7 @@ import java.util.logging.Level;
  * Handles connections via HikariCP connection pool, ban storage and retrieval.
  */
 public class DatabaseManager {
-    private final HardcoreBanPlugin plugin;
+    private final HardcoreBanBootstrap plugin;
     private final String host;
     private final int port;
     private final String database;
@@ -31,7 +31,7 @@ public class DatabaseManager {
      *
      * @param plugin The main plugin instance
      */
-    public DatabaseManager(HardcoreBanPlugin plugin) {
+    public DatabaseManager(HardcoreBanBootstrap plugin) {
         this.plugin = plugin;
 
         // Get the ConfigManager from the plugin

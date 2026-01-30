@@ -9,7 +9,7 @@ import org.bukkit.event.player.PlayerRespawnEvent;
 import org.bukkit.scheduler.BukkitRunnable;
 
 import net.kyori.adventure.text.minimessage.MiniMessage;
-import sh.pcx.hardcoreban.HardcoreBanPlugin;
+import sh.pcx.hardcoreban.HardcoreBanBootstrap;
 import sh.pcx.hardcoreban.util.TimeFormatter;
 
 /**
@@ -17,7 +17,7 @@ import sh.pcx.hardcoreban.util.TimeFormatter;
  * Ensures banned players in spectator mode are properly kicked.
  */
 public class PlayerRespawnListener implements Listener {
-    private final HardcoreBanPlugin plugin;
+    private final HardcoreBanBootstrap plugin;
     private final MiniMessage miniMessage;
 
     /**
@@ -25,7 +25,7 @@ public class PlayerRespawnListener implements Listener {
      *
      * @param plugin The main plugin instance
      */
-    public PlayerRespawnListener(HardcoreBanPlugin plugin) {
+    public PlayerRespawnListener(HardcoreBanBootstrap plugin) {
         this.plugin = plugin;
         this.miniMessage = MiniMessage.miniMessage();
     }
@@ -41,8 +41,8 @@ public class PlayerRespawnListener implements Listener {
         Player player = event.getPlayer();
 
         // Check if we're in the right world
-        if (!plugin.getConfig().getBoolean("affect-all-worlds", false)) {
-            String hardcoreWorld = plugin.getConfig().getString("hardcore-world", "world");
+        if (!plugin.getPlugin().getConfig().getBoolean("affect-all-worlds", false)) {
+            String hardcoreWorld = plugin.getPlugin().getConfig().getString("hardcore-world", "world");
             if (!player.getWorld().getName().equals(hardcoreWorld)) {
                 return;
             }
@@ -57,13 +57,13 @@ public class PlayerRespawnListener implements Listener {
                 public void run() {
                     if (player.isOnline()) {
                         long timeLeft = plugin.getTimeLeft(player.getUniqueId());
-                        String kickMessage = plugin.getConfig().getString("messages.join-banned",
+                        String kickMessage = plugin.getPlugin().getConfig().getString("messages.join-banned",
                                 "<red>You are still banned from hardcore mode for {time}.");
                         kickMessage = kickMessage.replace("{time}", TimeFormatter.formatTime(timeLeft));
                         player.kick(miniMessage.deserialize(kickMessage));
                     }
                 }
-            }.runTaskLater(plugin, 5L); // Short delay
+            }.runTaskLater(plugin.getPlugin(), 5L); // Short delay
         }
     }
 }

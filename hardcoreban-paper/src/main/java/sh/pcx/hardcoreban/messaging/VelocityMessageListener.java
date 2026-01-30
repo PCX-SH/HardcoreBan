@@ -10,7 +10,7 @@ import com.google.common.io.ByteArrayDataInput;
 import com.google.common.io.ByteArrayDataOutput;
 import com.google.common.io.ByteStreams;
 
-import sh.pcx.hardcoreban.HardcoreBanPlugin;
+import sh.pcx.hardcoreban.HardcoreBanBootstrap;
 
 /**
  * Handles plugin messaging channel communication with Velocity proxy.
@@ -18,14 +18,14 @@ import sh.pcx.hardcoreban.HardcoreBanPlugin;
  */
 public class VelocityMessageListener implements PluginMessageListener {
 
-    private final HardcoreBanPlugin plugin;
+    private final HardcoreBanBootstrap plugin;
 
     /**
      * Creates a new VelocityMessageListener.
      *
      * @param plugin The main plugin instance
      */
-    public VelocityMessageListener(HardcoreBanPlugin plugin) {
+    public VelocityMessageListener(HardcoreBanBootstrap plugin) {
         this.plugin = plugin;
     }
 
@@ -56,7 +56,7 @@ public class VelocityMessageListener implements PluginMessageListener {
                         out.writeBoolean(isBanned);
                         out.writeLong(timeLeft);
 
-                        player.sendPluginMessage(plugin, "hardcoreban:channel", out.toByteArray());
+                        player.sendPluginMessage(plugin.getPlugin(), "hardcoreban:channel", out.toByteArray());
                         plugin.log(Level.FINE, "Sent ban status for " + uuidStr + ": banned=" + isBanned +
                                 ", timeLeft=" + timeLeft);
                     }

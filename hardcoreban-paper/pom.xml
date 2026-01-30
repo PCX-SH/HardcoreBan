@@ -7,11 +7,11 @@
     <parent>
         <groupId>sh.pcx</groupId>
         <artifactId>hardcoreban-parent</artifactId>
-        <version>1.1.0</version>
+        <version>1.1.1</version>
     </parent>
 
     <artifactId>hardcoreban-paper</artifactId>
-    <version>1.1.0</version>
+    <version>1.1.1</version>
     <packaging>jar</packaging>
 
     <name>HardcoreBan-Paper</name>
@@ -33,7 +33,7 @@
         <dependency>
             <groupId>io.papermc.paper</groupId>
             <artifactId>paper-api</artifactId>
-            <version>1.21.4-R0.1-SNAPSHOT</version>
+            <version>1.21.5-R0.1-SNAPSHOT</version>
             <scope>provided</scope>
         </dependency>
         <!-- Google Guava -->
@@ -43,19 +43,26 @@
             <version>33.4.0-jre</version>
             <scope>provided</scope>
         </dependency>
-        <!-- MySQL Connector -->
+        <!-- MySQL Connector - provided scope, downloaded at runtime if needed -->
         <dependency>
             <groupId>com.mysql</groupId>
             <artifactId>mysql-connector-j</artifactId>
             <version>9.2.0</version>
-            <scope>compile</scope>
+            <scope>provided</scope>
         </dependency>
-        <!-- HikariCP Connection Pool -->
+        <!-- HikariCP Connection Pool - provided scope, downloaded at runtime if needed -->
         <dependency>
             <groupId>com.zaxxer</groupId>
             <artifactId>HikariCP</artifactId>
             <version>6.2.1</version>
-            <scope>compile</scope>
+            <scope>provided</scope>
+        </dependency>
+        <!-- SLF4J API (HikariCP dependency) - provided scope -->
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+            <version>2.0.16</version>
+            <scope>provided</scope>
         </dependency>
     </dependencies>
 
@@ -73,20 +80,15 @@
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-shade-plugin</artifactId>
-                <version>3.6.0</version>
-                <executions>
-                    <execution>
-                        <phase>package</phase>
-                        <goals>
-                            <goal>shade</goal>
-                        </goals>
-                        <configuration>
-                            <createDependencyReducedPom>false</createDependencyReducedPom>
-                            <outputFile>target/${project.name}.jar</outputFile>
-                        </configuration>
-                    </execution>
-                </executions>
+                <artifactId>maven-jar-plugin</artifactId>
+                <version>3.4.2</version>
+                <configuration>
+                    <archive>
+                        <manifestEntries>
+                            <Built-By>HardcoreBan</Built-By>
+                        </manifestEntries>
+                    </archive>
+                </configuration>
             </plugin>
         </plugins>
         <resources>

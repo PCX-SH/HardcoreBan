@@ -15,6 +15,7 @@ A comprehensive Minecraft plugin system for managing hardcore mode temporary ban
 - **Temporary Bans**: Automatically bans players for a configurable duration when they die in hardcore mode
 - **Proxy Integration**: Works with Velocity to prevent banned players from connecting to the hardcore server
 - **Database Storage**: Uses MySQL/MariaDB with HikariCP connection pooling for reliable and scalable ban storage
+- **Spigot & Paper Support**: Works on both Spigot and Paper servers with runtime dependency loading
 - **Admin Commands**: Full suite of commands for managing bans across both Paper and Velocity
 - **Gamemode Reset**: Automatically resets players' gamemode to survival when bans expire
 - **Spectator Mode**: Optionally allows players to see their death location briefly before being kicked
@@ -24,7 +25,7 @@ A comprehensive Minecraft plugin system for managing hardcore mode temporary ban
 ## Requirements
 
 - Java 21 or higher
-- Paper 1.21.4 or higher
+- Paper 1.21.5+ or Spigot 1.21.5+
 - Velocity 3.4.0 or higher (optional, for proxy support)
 - MySQL/MariaDB database server
 
@@ -225,6 +226,15 @@ The compiled JARs will be in `hardcoreban-paper/target/` and `hardcoreban-veloci
 - HikariCP manages a connection pool (default: 2-10 connections) for optimal performance
 - Consider adding indexes to the database if you have a large number of bans
 - Adjust the check interval based on your server's needs
+
+### Runtime Dependencies (Spigot)
+
+On Spigot servers, the plugin automatically downloads required dependencies on first startup:
+- HikariCP 6.2.1
+- MySQL Connector/J 9.2.0
+- SLF4J API 2.0.16
+
+Dependencies are cached in `plugins/HardcoreBan-Paper/libraries/` and verified with SHA-256 checksums. Paper 1.21+ servers provide these libraries natively, so no download is needed.
 
 ## Contributing
 

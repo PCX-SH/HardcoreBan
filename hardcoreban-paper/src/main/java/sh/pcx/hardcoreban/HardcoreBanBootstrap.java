@@ -18,6 +18,7 @@ import sh.pcx.hardcoreban.database.DatabaseManager;
 import sh.pcx.hardcoreban.listeners.PlayerDeathListener;
 import sh.pcx.hardcoreban.listeners.PlayerJoinListener;
 import sh.pcx.hardcoreban.listeners.PlayerRespawnListener;
+import sh.pcx.hardcoreban.loader.LoaderBootstrap;
 import sh.pcx.hardcoreban.messaging.VelocityMessageListener;
 import sh.pcx.hardcoreban.model.Ban;
 import sh.pcx.hardcoreban.util.ConfigManager;
@@ -29,16 +30,28 @@ import java.util.UUID;
 import java.util.logging.Level;
 
 /**
- * Main plugin class for HardcoreBan Paper implementation.
- * Coordinates all plugin functionality.
+ * Bootstrap implementation for HardcoreBan Paper plugin.
+ *
+ * This class is instantiated by the {@link sh.pcx.hardcoreban.loader.HardcoreBanLoader}
+ * after dependencies have been downloaded and loaded. It contains the actual
+ * plugin logic and delegates lifecycle methods from the loader.
  */
-public class HardcoreBanPlugin extends JavaPlugin {
+public class HardcoreBanBootstrap implements LoaderBootstrap {
+    private JavaPlugin plugin;
     private DatabaseManager databaseManager;
     private ConfigManager configManager;
     private MiniMessage miniMessage;
 
     @Override
-    public void onEnable() {
+    public void onLoad(JavaPlugin loader) {
+        this.plugin = loader;
+        // Nothing to do on load currently
+    }
+
+    @Override
+    public void onEnable(JavaPlugin loader) {
+        this.plugin = loader;
+
         try {
             // Initialize Mini Message
             miniMessage = MiniMessage.miniMessage();
@@ -67,7 +80,7 @@ public class HardcoreBanPlugin extends JavaPlugin {
 
             if (!dbConnected) {
                 log(Level.SEVERE, "Could not connect to database. Plugin will be disabled.");
-                getServer().getPluginManager().disablePlugin(this);
+                plugin.getServer().getPluginManager().disablePlugin(plugin);
                 return;
             }
 
@@ -78,7 +91,7 @@ public class HardcoreBanPlugin extends JavaPlugin {
             registerEventListeners();
 
             // Register commands
-            getCommand("hardcoreban").setExecutor(new HardcoreBanCommand(this));
+            plugin.getCommand("hardcoreban").setExecutor(new HardcoreBanCommand(this));
 
             // Setup scheduled tasks
             setupScheduledTasks();
@@ -87,22 +100,31 @@ public class HardcoreBanPlugin extends JavaPlugin {
         } catch (Exception e) {
             log(Level.SEVERE, "Error initializing plugin: " + e.getMessage());
             e.printStackTrace();
-            getServer().getPluginManager().disablePlugin(this);
+            plugin.getServer().getPluginManager().disablePlugin(plugin);
         }
     }
 
     @Override
-    public void onDisable() {
+    public void onDisable(JavaPlugin loader) {
         // Disconnect from database
         if (databaseManager != null) {
             databaseManager.disconnect();
         }
 
         // Unregister plugin channels
-        getServer().getMessenger().unregisterOutgoingPluginChannel(this);
-        getServer().getMessenger().unregisterIncomingPluginChannel(this);
+        plugin.getServer().getMessenger().unregisterOutgoingPluginChannel(plugin);
+        plugin.getServer().getMessenger().unregisterIncomingPluginChannel(plugin);
 
         log(Level.INFO, "HardcoreBan has been disabled!");
+    }
+
+    /**
+     * Gets the plugin instance (the loader).
+     *
+     * @return The JavaPlugin instance
+     */
+    public JavaPlugin getPlugin() {
+        return plugin;
     }
 
     /**
@@ -110,10 +132,10 @@ public class HardcoreBanPlugin extends JavaPlugin {
      */
     private void setupPluginMessaging() {
         // Register outgoing plugin channel
-        getServer().getMessenger().registerOutgoingPluginChannel(this, "hardcoreban:channel");
+        plugin.getServer().getMessenger().registerOutgoingPluginChannel(plugin, "hardcoreban:channel");
 
         // Register incoming plugin channel
-        getServer().getMessenger().registerIncomingPluginChannel(this, "hardcoreban:channel",
+        plugin.getServer().getMessenger().registerIncomingPluginChannel(plugin, "hardcoreban:channel",
                 new VelocityMessageListener(this));
     }
 
@@ -121,9 +143,9 @@ public class HardcoreBanPlugin extends JavaPlugin {
      * Registers all event listeners.
      */
     private void registerEventListeners() {
-        getServer().getPluginManager().registerEvents(new PlayerDeathListener(this), this);
-        getServer().getPluginManager().registerEvents(new PlayerJoinListener(this), this);
-        getServer().getPluginManager().registerEvents(new PlayerRespawnListener(this), this);
+        plugin.getServer().getPluginManager().registerEvents(new PlayerDeathListener(this), plugin);
+        plugin.getServer().getPluginManager().registerEvents(new PlayerJoinListener(this), plugin);
+        plugin.getServer().getPluginManager().registerEvents(new PlayerRespawnListener(this), plugin);
     }
 
     /**
@@ -131,7 +153,7 @@ public class HardcoreBanPlugin extends JavaPlugin {
      */
     private void setupScheduledTasks() {
         // Setup ban check task
-        long checkInterval = getConfig().getLong("check-interval", 60) * 20; // Convert seconds to ticks
+        long checkInterval = plugin.getConfig().getLong("check-interval", 60) * 20; // Convert seconds to ticks
         new BukkitRunnable() {
             @Override
             public void run() {
@@ -142,7 +164,7 @@ public class HardcoreBanPlugin extends JavaPlugin {
                     e.printStackTrace();
                 }
             }
-        }.runTaskTimer(this, checkInterval, checkInterval);
+        }.runTaskTimer(plugin, checkInterval, checkInterval);
     }
 
     /**
@@ -302,7 +324,7 @@ public class HardcoreBanPlugin extends JavaPlugin {
      */
     public void resetPlayerGameMode(Player player) {
         // Get the configured gamemode to reset to
-        String gameModeStr = getConfig().getString("reset-gamemode", "SURVIVAL").toUpperCase();
+        String gameModeStr = plugin.getConfig().getString("reset-gamemode", "SURVIVAL").toUpperCase();
         GameMode targetGameMode;
 
         try {
@@ -341,14 +363,14 @@ public class HardcoreBanPlugin extends JavaPlugin {
                         }
                     }
                 }
-            }.runTaskLater(this, 5L); // 5 tick delay
+            }.runTaskLater(plugin, 5L); // 5 tick delay
         } else {
             log(Level.INFO, "Reset gamemode for player " + player.getName() +
                     " from " + originalGameMode + " to " + targetGameMode);
         }
 
         // Send the gamemode reset message
-        String resetMessage = getConfig().getString("messages.gamemode-reset",
+        String resetMessage = plugin.getConfig().getString("messages.gamemode-reset",
                 "<green>Your hardcore ban has expired. Your gamemode has been set to survival.");
         player.sendMessage(miniMessage.deserialize(resetMessage));
     }
@@ -373,7 +395,7 @@ public class HardcoreBanPlugin extends JavaPlugin {
         out.writeUTF(uuid.toString());
         out.writeLong(expiry);
 
-        player.sendPluginMessage(this, "hardcoreban:channel", out.toByteArray());
+        player.sendPluginMessage(plugin, "hardcoreban:channel", out.toByteArray());
         log(Level.FINE, "Notified Velocity of ban for player " + uuid);
     }
 
@@ -395,7 +417,7 @@ public class HardcoreBanPlugin extends JavaPlugin {
         out.writeUTF("UNBAN");
         out.writeUTF(uuid.toString());
 
-        player.sendPluginMessage(this, "hardcoreban:channel", out.toByteArray());
+        player.sendPluginMessage(plugin, "hardcoreban:channel", out.toByteArray());
         log(Level.FINE, "Notified Velocity of ban removal for player " + uuid);
     }
 
@@ -414,7 +436,7 @@ public class HardcoreBanPlugin extends JavaPlugin {
         ByteArrayDataOutput out = ByteStreams.newDataOutput();
         out.writeUTF("CLEAR_ALL");
 
-        player.sendPluginMessage(this, "hardcoreban:channel", out.toByteArray());
+        player.sendPluginMessage(plugin, "hardcoreban:channel", out.toByteArray());
         log(Level.FINE, "Notified Velocity of ban clearance");
     }
 
@@ -426,9 +448,9 @@ public class HardcoreBanPlugin extends JavaPlugin {
      * @param message The message to log
      */
     public void log(Level level, String message) {
-        Level configLevel = Level.parse(getConfig().getString("log-level", "INFO").toUpperCase());
+        Level configLevel = Level.parse(plugin.getConfig().getString("log-level", "INFO").toUpperCase());
         if (level.intValue() >= configLevel.intValue()) {
-            getLogger().log(level, message);
+            plugin.getLogger().log(level, message);
         }
     }
 

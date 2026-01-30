@@ -9,7 +9,7 @@ import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.scheduler.BukkitRunnable;
 
 import net.kyori.adventure.text.minimessage.MiniMessage;
-import sh.pcx.hardcoreban.HardcoreBanPlugin;
+import sh.pcx.hardcoreban.HardcoreBanBootstrap;
 import sh.pcx.hardcoreban.model.Ban;
 import sh.pcx.hardcoreban.util.TimeFormatter;
 
@@ -20,7 +20,7 @@ import java.util.logging.Level;
  * Listener for handling player death events and implementing the hardcore ban mechanism.
  */
 public class PlayerDeathListener implements Listener {
-    private final HardcoreBanPlugin plugin;
+    private final HardcoreBanBootstrap plugin;
     private final MiniMessage miniMessage;
 
     /**
@@ -28,7 +28,7 @@ public class PlayerDeathListener implements Listener {
      *
      * @param plugin The main plugin instance
      */
-    public PlayerDeathListener(HardcoreBanPlugin plugin) {
+    public PlayerDeathListener(HardcoreBanBootstrap plugin) {
         this.plugin = plugin;
         this.miniMessage = MiniMessage.miniMessage();
     }
@@ -47,8 +47,8 @@ public class PlayerDeathListener implements Listener {
         plugin.log(Level.INFO, "Processing death event for player " + player.getName());
 
         // Check if we're in the right world
-        if (!plugin.getConfig().getBoolean("affect-all-worlds", false)) {
-            String hardcoreWorld = plugin.getConfig().getString("hardcore-world", "world");
+        if (!plugin.getPlugin().getConfig().getBoolean("affect-all-worlds", false)) {
+            String hardcoreWorld = plugin.getPlugin().getConfig().getString("hardcore-world", "world");
             if (!player.getWorld().getName().equals(hardcoreWorld)) {
                 plugin.log(Level.INFO, "Player " + player.getName() + " died in world " + player.getWorld().getName() +
                         " which is not the hardcore world (" + hardcoreWorld + "). Ignoring.");
@@ -63,8 +63,8 @@ public class PlayerDeathListener implements Listener {
         }
 
         // Calculate ban duration in milliseconds based on the config
-        String unit = plugin.getConfig().getString("ban-duration.unit", "hours").toLowerCase();
-        int amount = plugin.getConfig().getInt("ban-duration.amount", 24);
+        String unit = plugin.getPlugin().getConfig().getString("ban-duration.unit", "hours").toLowerCase();
+        int amount = plugin.getPlugin().getConfig().getInt("ban-duration.amount", 24);
 
         long banDuration;
         if ("minutes".equals(unit)) {
@@ -85,23 +85,23 @@ public class PlayerDeathListener implements Listener {
             String formattedBanTime = TimeFormatter.formatBanTime(banDuration, unit);
 
             // Notify the player about the ban
-            String deathMessage = plugin.getConfig().getString("messages.death-ban", "<red>You died in hardcore mode! You are banned for {time}.");
+            String deathMessage = plugin.getPlugin().getConfig().getString("messages.death-ban", "<red>You died in hardcore mode! You are banned for {time}.");
             deathMessage = deathMessage.replace("{time}", formattedBanTime);
             player.sendMessage(miniMessage.deserialize(deathMessage));
 
             // Set gamemode to spectator if configured to do so
-            boolean setSpectatorOnDeath = plugin.getConfig().getBoolean("set-spectator-on-death", true);
+            boolean setSpectatorOnDeath = plugin.getPlugin().getConfig().getBoolean("set-spectator-on-death", true);
             if (setSpectatorOnDeath) {
                 // Set to spectator immediately to allow them to see their death location
                 player.setGameMode(GameMode.SPECTATOR);
 
                 // Create the kick message
-                final String kickMessage = plugin.getConfig().getString("messages.kick-message",
+                final String kickMessage = plugin.getPlugin().getConfig().getString("messages.kick-message",
                                 "<red>You died in hardcore mode! You are banned for {time}.")
                         .replace("{time}", formattedBanTime);
 
                 // Schedule a task to kick the player after a short delay
-                int kickDelayTicks = plugin.getConfig().getInt("kick-delay-ticks", 60);
+                int kickDelayTicks = plugin.getPlugin().getConfig().getInt("kick-delay-ticks", 60);
 
                 new BukkitRunnable() {
                     @Override
@@ -117,10 +117,10 @@ public class PlayerDeathListener implements Listener {
                             }
                         }
                     }
-                }.runTaskLater(plugin, kickDelayTicks);
+                }.runTaskLater(plugin.getPlugin(), kickDelayTicks);
             } else {
                 // Kick immediately if not using spectator mode
-                String kickMessage = plugin.getConfig().getString("messages.kick-message",
+                String kickMessage = plugin.getPlugin().getConfig().getString("messages.kick-message",
                         "<red>You died in hardcore mode! You are banned for {time}.");
                 kickMessage = kickMessage.replace("{time}", formattedBanTime);
                 player.kick(miniMessage.deserialize(kickMessage));

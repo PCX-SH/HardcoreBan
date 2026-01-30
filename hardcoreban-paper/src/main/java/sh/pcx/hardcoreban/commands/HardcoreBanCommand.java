@@ -18,7 +18,7 @@ import org.bukkit.entity.Player;
 
 import net.kyori.adventure.text.minimessage.MiniMessage;
 
-import sh.pcx.hardcoreban.HardcoreBanPlugin;
+import sh.pcx.hardcoreban.HardcoreBanBootstrap;
 import sh.pcx.hardcoreban.util.TimeFormatter;
 
 /**
@@ -26,7 +26,7 @@ import sh.pcx.hardcoreban.util.TimeFormatter;
  * Implements command execution and tab completion.
  */
 public class HardcoreBanCommand implements CommandExecutor, TabCompleter {
-    private final HardcoreBanPlugin plugin;
+    private final HardcoreBanBootstrap plugin;
     private final MiniMessage miniMessage;
 
     /**
@@ -34,7 +34,7 @@ public class HardcoreBanCommand implements CommandExecutor, TabCompleter {
      *
      * @param plugin The main plugin instance
      */
-    public HardcoreBanCommand(HardcoreBanPlugin plugin) {
+    public HardcoreBanCommand(HardcoreBanBootstrap plugin) {
         this.plugin = plugin;
         this.miniMessage = MiniMessage.miniMessage();
     }
@@ -300,7 +300,7 @@ public class HardcoreBanCommand implements CommandExecutor, TabCompleter {
 
         // Show plugin status
         sender.sendMessage(miniMessage.deserialize("<yellow>Banned players: " + plugin.getBannedPlayers().size()));
-        sender.sendMessage(miniMessage.deserialize("<yellow>Plugin version: " + plugin.getDescription().getVersion()));
+        sender.sendMessage(miniMessage.deserialize("<yellow>Plugin version: " + plugin.getPlugin().getDescription().getVersion()));
 
         return true;
     }

@@ -9,7 +9,7 @@ import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.scheduler.BukkitRunnable;
 
 import net.kyori.adventure.text.minimessage.MiniMessage;
-import sh.pcx.hardcoreban.HardcoreBanPlugin;
+import sh.pcx.hardcoreban.HardcoreBanBootstrap;
 import sh.pcx.hardcoreban.util.TimeFormatter;
 
 import java.util.UUID;
@@ -19,7 +19,7 @@ import java.util.logging.Level;
  * Listener for handling player join events and enforcing bans.
  */
 public class PlayerJoinListener implements Listener {
-    private final HardcoreBanPlugin plugin;
+    private final HardcoreBanBootstrap plugin;
     private final MiniMessage miniMessage;
 
     /**
@@ -27,7 +27,7 @@ public class PlayerJoinListener implements Listener {
      *
      * @param plugin The main plugin instance
      */
-    public PlayerJoinListener(HardcoreBanPlugin plugin) {
+    public PlayerJoinListener(HardcoreBanBootstrap plugin) {
         this.plugin = plugin;
         this.miniMessage = MiniMessage.miniMessage();
     }
@@ -56,7 +56,7 @@ public class PlayerJoinListener implements Listener {
             // If still banned, kick them
             if (timeLeft > 0) {
                 // Create the kick message outside the inner class so it's effectively final
-                final String kickMessage = plugin.getConfig().getString("messages.join-banned",
+                final String kickMessage = plugin.getPlugin().getConfig().getString("messages.join-banned",
                                 "<red>You are still banned from hardcore mode for {time}.")
                         .replace("{time}", TimeFormatter.formatTime(timeLeft));
 
@@ -68,7 +68,7 @@ public class PlayerJoinListener implements Listener {
                             player.kick(miniMessage.deserialize(kickMessage));
                         }
                     }
-                }.runTaskLater(plugin, 5L);
+                }.runTaskLater(plugin.getPlugin(), 5L);
             } else {
                 // Ban expired, remove it and reset gamemode
                 plugin.log(Level.INFO, "Ban for " + player.getName() + " has expired. Removing ban and resetting gamemode.");
@@ -80,8 +80,8 @@ public class PlayerJoinListener implements Listener {
             // This handles the case where they might have been in spectator mode when banned
             if (player.getGameMode() == GameMode.SPECTATOR) {
                 // Check if we're in the right world
-                if (plugin.getConfig().getBoolean("affect-all-worlds", false) ||
-                        player.getWorld().getName().equals(plugin.getConfig().getString("hardcore-world", "world"))) {
+                if (plugin.getPlugin().getConfig().getBoolean("affect-all-worlds", false) ||
+                        player.getWorld().getName().equals(plugin.getPlugin().getConfig().getString("hardcore-world", "world"))) {
 
                     plugin.log(Level.INFO, "Player " + player.getName() + " is in spectator mode but not banned. Resetting gamemode.");
                     plugin.resetPlayerGameMode(player);

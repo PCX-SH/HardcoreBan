@@ -1,6 +1,6 @@
 name: HardcoreBan-Paper
-version: 1.0.0
-main: sh.pcx.hardcoreban.HardcoreBanPlugin
+version: ${project.version}
+main: sh.pcx.hardcoreban.loader.HardcoreBanLoader
 api-version: 1.21
 description: Temporarily bans players when they die in hardcore mode
 author: Reset64
